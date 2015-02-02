@@ -1,0 +1,10 @@
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_sender.h"
+
+void spo_dns_sender(void *info_blk) {
+    char *hh = (char *) info_blk;
+
+    while (1) {
+        sleep(10);
+    }
+}

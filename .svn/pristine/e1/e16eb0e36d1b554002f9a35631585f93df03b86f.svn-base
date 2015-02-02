@@ -1,0 +1,59 @@
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_file.h"
+
+/*  */
+SPO_RET_VALUE_INT spo_open(const char *file, int file_flg, int perm) {
+
+    int fd = -1;
+
+    if (file == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (perm <= -1) {
+        fd = open(file, file_flg);
+    }else {
+        fd = open(file, file_flg, perm);
+    }
+
+    return fd;
+}
+
+
+/*  */
+ssize_t spo_write(int fd, const void *buf, size_t size) {
+
+    ssize_t s = -1;
+
+    if (buf == NULL || size <= 0 || fd < 0) {
+        return -1;
+    }
+
+    s = write(fd, buf, size);
+
+    return s;
+}
+
+/*  */
+FILE *spo_fopen(const char *file_name, const char *modes) {
+
+    FILE *fp;
+
+    if (file_name == NULL || modes == NULL) {
+        return NULL;
+    }
+
+    fp = fopen(file_name, modes);
+
+    return fp;
+}
+
+
+SPO_RET_STATUS_INT spo_fclose(FILE *fp) {
+
+    if (fp == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    return fclose(fp);
+}

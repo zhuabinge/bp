@@ -1,0 +1,5 @@
+#ifndef SPOOFER_H
+#define SPOOFER_H
+#include "spoofer_main.h"
+SPO_RET_VALUE_INT spo_create_msg_queue(int msgid_p, int msgflg);
+#endif // SPOOFER_H

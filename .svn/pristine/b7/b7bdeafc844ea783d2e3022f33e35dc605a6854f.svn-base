@@ -1,0 +1,917 @@
+
+//dns spoofers rebrith no do.
+//dns sender no do.
+//msg size.
+//pf test
+//rebuild the code
+//dns domain file update
+//delete the printf info
+
+#include<stdio.h>
+#include<stdlib.h>
+#define __USE_GNU
+#define _GNU_SOURCE
+#include <sched.h>
+#include <pthread.h>
+
+#include <sys/msg.h>
+#include <sys/wait.h>
+
+#include "spoofer.h"
+#include "../spoofer_mem_pool/mem_pool.h"
+#include "../spoofer_ipcs/spoofer_ipcs.h"
+#include "../spoofer_log/spoofer_log.h"
+#include "../spoofer_test/test.h"
+#include "../spoofer_sniffer/spoofer_sniffer.h"
+#include "../spoofer_config/spoofer_config.h"
+#include "../spoofer_sender/spoofer_sender.h"
+
+#define SPOOFER_PROC_TYPE_SNIFFER ((char *) "sniffer")          /* this process type is sniffer */
+#define SPOOFER_PROC_TYPE_SPOOFER ((char *) "spoofer")          /* this process type is spoffer */
+#define SPOOFER_PROC_MEM_POOL_SIZE SPOOFER_PAGE_SIZE
+
+#define SPOOFER_MIN(a,b) ((((long)((a)-(b)))&0x80000000)?a:b)   /* find the min in a and b */
+
+
+int use_pfring = 1;             /* use pf to catch packet */
+int proc_idx;                   /* mark the proc in process's array location */
+
+int max_dns_packet_size;        /* the dns request packet max size */
+int max_http_pacekt_size;       /* the http request packet max size */
+
+
+spo_cfg_t *spo_cfg = NULL;      /* config file's struct, global  */
+
+spo_dmn_t *spo_http_dmn = NULL;
+spo_dmn_t *spo_dns_dmn = NULL;
+
+spo_proc_queue_t *proc_queue_header = NULL;    /* proc queue header */
+
+
+/* record the update info */
+typedef struct spo_update_info_s {
+    int update_time;
+    char http_file_name[256];
+    char dns_file_name[256];
+}spo_update_info_t;
+
+
+/**
+ *
+ *  create a msg queue.
+ *
+ *  @param msgid_p, is the msgid but no a key_t type.
+ *
+ *  @param msgflg_perm, is the perm of the queue we create.
+ *
+ *  @return msgid, is the queue id we create.
+ *
+ **/
+
+SPO_RET_VALUE_INT spo_create_msg_queue(int msgid_p, int msgflg_perm) {
+
+    int msgid = -1;
+
+    msgid = spo_msgget((key_t) msgid_p, msgflg_perm | IPC_CREAT);
+
+    if (msgid == -1) {
+        /* wirte log */
+        exit(EXIT_FAILURE);
+    }
+
+    return msgid;
+}
+
+
+/**
+ *  remove a msg queue.
+ *
+ *  @param msgid, is the queue id we will remove.
+ *
+ *  @return int, the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_remove_msg_queue(int msgid) {
+
+    if (msgctl(msgid, IPC_RMID, 0) == -1) {
+        printf("msg queue %d remove err\n", msgid);
+        return SPOOFER_FAILURE;
+    }
+
+    printf("msg queue %d remove successful\n", msgid);
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  bind cpu for the process.
+ *
+ *  @param cpu_id, is the cpu id.
+ *
+ *  @param pid, is the proc id.
+ *
+ *  @return nothing.
+ *
+ *  status finished, tested.
+ *
+ **/
+
+void spo_bind_cpu(int cpu_id, pid_t pid) {
+
+	cpu_set_t mask; /*mask set.*/
+	CPU_ZERO(&mask);    /*clear mask*/
+	CPU_SET(cpu_id, &mask); /*bind cpu*/
+
+	if (sched_setaffinity(pid, sizeof(mask), &mask) == -1) {
+		printf("bind cpu err\n");
+	}
+}
+
+
+/**
+ *
+ *  main proc send the update sig (usr1 or usr2) to sniffers.
+ *
+ *  @param sig, is the sig we have to send.
+ *
+ *  @param queue_header, is the proc queue header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_send_update_sig(int sig, spo_proc_queue_t *queue_header) {
+
+    if (queue_header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (sig == SIGUSR1) {       /* http domain cfg was modified*/
+        int i = 0;
+        for (i = 0; i < queue_header->sniffer_n; i++) {
+            kill(queue_header->sniffer[i].pid, SIGUSR1);
+        }
+        return SPOOFER_OK;
+    }
+
+    if (sig == SIGUSR2) {       /* dns domain cfg was modified */
+        int i = 0;
+        for (i = 0; i < queue_header->sniffer_n; i++) {
+            kill(queue_header->sniffer[i].pid, SIGUSR2);
+        }
+
+        return SPOOFER_OK;
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+
+/**
+ *
+ *  when domain files is modified, main proc update the cfg first.
+ *
+ *  @param dmn_cfg_file, is the domain file name.
+ *
+ *  @param http_dmn, is the http domain struct.
+ *
+ *  @return int, is the exec.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_main_update_http_dmn_cfg(const char *dmn_cfg_file, spo_dmn_t *http_dmn) {
+
+    int ret = 0;
+
+    if (http_dmn == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    ret = spo_update_http_dmn_cfg((void *)dmn_cfg_file, http_dmn);
+    if (ret == SPOOFER_FAILURE) {
+        perror("main proc update http dmn err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    printf("main update success\n");
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  check http and dns domain cfg file whether modified.
+ *
+ *  @param update_info_, is the cfg file path.
+ *
+ *  @return void *.
+ *
+ **/
+
+void *spo_check_domain_cfg(void *update_info_) {
+
+    spo_update_info_t *update_info = NULL;
+    int dns_ret = -1;
+    int http_ret = -1;
+
+    if (update_info_ == NULL) {
+        return NULL;
+    }
+
+    update_info = ( spo_update_info_t *)update_info_;
+    const char *http_cfg_file = (const char *) update_info->http_file_name;
+    const char *dns_cfg_file = (const char *) update_info->dns_file_name;
+
+    int t = 0;
+
+    t = update_info->update_time;
+
+    if (t <= 0) {
+        return NULL;
+    }
+
+    struct  stat http_buf;
+    memset(&http_buf, '\0', sizeof(struct  stat));
+    long http_lmtime = 0, http_mtime = 0;
+    stat(http_cfg_file, &http_buf);
+    http_lmtime = http_buf.st_mtime;
+
+    struct  stat dns_buf;
+    memset(&dns_buf, '\0', sizeof(struct  stat));
+    long dns_lmtime = 0, dns_mtime = 0;
+    stat(dns_cfg_file, &dns_buf);
+    dns_lmtime = dns_buf.st_mtime;
+
+    while (1) {
+        sleep(t);
+
+        memset(&http_buf, '\0', sizeof(struct  stat));
+        http_ret = stat(http_cfg_file, &http_buf);
+
+        if (http_ret == -1) {
+            goto dns_cfg_file_status;
+        }
+
+        http_mtime = http_buf.st_mtime;
+
+        if (http_mtime != http_lmtime) {
+            printf("up\n");
+            int ret = spo_main_update_http_dmn_cfg((const char *) "http_domain_config", spo_http_dmn);
+            if (ret == SPOOFER_FAILURE) {
+                goto dns_cfg_file_status;
+            }
+
+            spo_send_update_sig(SIGUSR1, proc_queue_header);
+            http_lmtime = http_mtime;
+        }
+
+
+dns_cfg_file_status:
+
+        memset(&dns_buf, '\0', sizeof(struct  stat));
+
+        dns_ret = stat(dns_cfg_file, &dns_buf);
+
+        if (dns_ret == -1) {
+            continue;
+        }
+
+        dns_mtime = dns_buf.st_mtime;
+
+        if (dns_mtime != dns_lmtime) {
+            //spo_send_usr2();
+            //send_sig(SIGUSR2);  //  ---------->send the usr2 for dns cfg, send the usr2 for dns
+            dns_lmtime = dns_mtime;
+        }
+    }
+}
+
+
+
+/**
+ *
+ *  create proc queue header.
+ *
+ *  @param void.
+ *
+ *  @return spo_proc_queue_t *, is the queue header we created.
+ *
+ **/
+
+spo_proc_queue_t *spo_create_proc_queue_header() {
+
+    spo_proc_queue_t *proc_queue_header;
+
+    proc_queue_header = spo_calloc(sizeof(spo_proc_queue_t));
+    if (proc_queue_header == NULL) {
+        perror("malloc proc queue header err\n");
+        return NULL;
+    }
+
+    proc_queue_header->sniffer_n = 0;
+    proc_queue_header->spoofer_n = 0;
+    proc_queue_header->cfg_updater = NULL;
+    proc_queue_header->log = NULL;
+    proc_queue_header->sniffer = NULL;
+    proc_queue_header->spoofer = NULL;
+
+    return proc_queue_header;
+}
+
+
+/**
+ *
+ *  create the proc struct node.
+ *
+ *  @param node_amount, is the proc amount we have to create.
+ *
+ *  @return spo_proc_node_t *, is the pointer point to node array header.
+ *
+ **/
+
+spo_proc_node_t *spo_create_node(int node_amount) {
+
+    int i = 0;
+    spo_proc_node_t *node = NULL;
+
+    if (node_amount <= 0) {
+        return NULL;
+    }
+
+    node = (spo_proc_node_t *)spo_calloc(node_amount * sizeof(spo_proc_node_t));
+    if (node == NULL) {
+        perror("malloc node err\n");
+        return NULL;
+    }
+
+    for (i = 0; i < node_amount; i++) {
+        node[i].cfg_info = NULL;
+        node[i].pid = 0;
+        node[i].proc_idx = 0;
+        node[i].http_msgid[0] = 1;
+        node[i].dns_msgid[0] = 1;
+        node[i].work_func = NULL;
+    }
+
+    return node;
+}
+
+
+/**
+ *
+ *  init the queue header struct here.
+ *
+ *  @param cfg, is the global's config file struct.
+ *
+ *  @param queue_header, is the global's proc queue header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_proc_queue_header(spo_cfg_t *cfg, spo_proc_queue_t *queue_header) {
+
+    if (cfg == NULL || queue_header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    /* create sniffer proc struct array */
+    queue_header->sniffer = spo_create_node(cfg->sniffers);
+    if (queue_header->sniffer == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    /* create dns spoofer proc struct array */
+    queue_header->spoofer = spo_create_node(cfg->dns_spoofers);
+    if (queue_header->spoofer == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    /* create log proc struct array */
+    queue_header->log = spo_create_node(1);
+    if (queue_header->log == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init proc node struct.
+ *
+ *  @param cfg, is the global's config file struct.
+ *
+ *  @param queue_header, is the global's proc queue header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_proc_node(spo_cfg_t *cfg, spo_proc_queue_t *queue_header) {
+
+    int i = 0;
+    int proc_amount = 0;
+
+    spo_cfg_ifo_blk_t *info = NULL;
+
+    if (cfg == NULL || queue_header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    /* find the sniffers */
+    info = cfg->cfg_ifo;
+    for (i = 0; i < cfg->sniffers; i++) {
+        while (info != NULL) {
+            if (strcmp(info->type, SPOOFER_PROC_TYPE_SNIFFER) == 0) {
+                proc_amount++;
+
+                if (use_pfring == 1) {
+                    queue_header->sniffer[i].work_func = spo_sniffer_fp_ring;
+                }else {
+                    queue_header->sniffer[i].work_func = spo_sniffer_pcap;
+                }
+                queue_header->sniffer[i].cfg_info = info;
+                info = info->next;
+                break;
+            }
+
+            info = info->next;
+        }
+    }
+
+    cfg->sniffers = SPOOFER_MIN(cfg->sniffers, proc_amount);
+    queue_header->sniffer_n = cfg->sniffers;
+
+    /* reset info */
+    info = cfg->cfg_ifo;
+    proc_amount = 0;
+
+    /* find the dns spoofer */
+    for (i = 0; i < cfg->dns_spoofers; i++) {
+        while (info != NULL) {
+            if (strcmp(info->type, SPOOFER_PROC_TYPE_SPOOFER) == 0) {
+                proc_amount++;
+                queue_header->spoofer[i].work_func = spo_dns_sender;
+                queue_header->spoofer[i].cfg_info = info;
+                info = info->next;
+                break;
+            }
+            info = info->next;
+        }
+    }
+
+    cfg->dns_spoofers = SPOOFER_MIN(cfg->dns_spoofers, proc_amount);
+    queue_header->spoofer_n = cfg->dns_spoofers;
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  create the proc pool here, call fork to create new proc.
+ *
+ *  @param proc_amount, is the proc amount have to create.
+ *
+ *  @param node_arr, is the proc node struct array.
+ *
+ *  @return pid_t, is the sub proc pid or 0 is the main pid targe.
+ *
+ **/
+
+pid_t spo_create_proc_pool(int proc_amount, spo_proc_node_t *node_arr) {
+
+    int i = 0;
+    pid_t pid;
+
+    if (proc_amount <= 0 || node_arr == NULL) {
+        perror("proc amount can't less than or eq 0\n");
+        return SPOOFER_FAILURE;
+    }
+
+    for (i = 0; i < proc_amount; i++) {
+
+        pid = fork();
+
+        if (pid < 0 ) {
+            perror("fork err\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (pid > 0) {  /* parent proc */
+            node_arr[i].pid = pid;
+            node_arr[i].proc_idx = i;       /* record this sub proc idx, for sub  proc  rebirth */
+            continue;
+        }else {         /* pid == 0, child proc */
+            proc_idx = i;
+            node_arr[i].proc_idx = proc_idx;
+            pid_t child_pid = getpid();
+            node_arr[i].pid = child_pid;
+            return child_pid;
+        }
+
+    }
+
+    return 0;
+}
+
+
+/**
+ *
+ *  here we start the sub processs.
+ *
+ *  @param cfg, is the global's config file struct.
+ *
+ *  @param queue_header, is the global's proc queue header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_start_sbu_process(spo_cfg_t *cfg, spo_proc_queue_t *queue_header) {
+
+    pid_t pid;
+
+    /* create the sniffers proc pool */
+    pid = spo_create_proc_pool(cfg->sniffers, queue_header->sniffer);
+
+    if (pid == SPOOFER_FAILURE)  return SPOOFER_FAILURE;
+
+    if (pid > 0) {
+        /* run the sniffer proc */
+        //go to do updata -----------------------------------
+        //go to create a msg by cfg info
+
+        printf("i am sniffer %ld\n", (long)getpid());
+        sigset_t set;
+        memset(&set, '\0', sizeof(sigset_t));
+
+        /* bulid msg queue */
+        int i = 0;
+        queue_header->sniffer[proc_idx].http_msgid[0] = queue_header->sniffer[proc_idx].cfg_info->http_msgid[0];
+        for (i = 1; i < queue_header->sniffer[proc_idx].cfg_info->http_msgid[0]; i++) {
+            int cfg_http_msgid = queue_header->sniffer[proc_idx].cfg_info->http_msgid[i];
+            queue_header->sniffer[proc_idx].http_msgid[i] = spo_create_msg_queue(cfg_http_msgid, 0666);
+            printf("i == %d  cfg id %d   sniffer http msgid %d\n", i, cfg_http_msgid, queue_header->sniffer[proc_idx].http_msgid[i]);
+        }
+
+        queue_header->sniffer[proc_idx].dns_msgid[0] = queue_header->sniffer[proc_idx].cfg_info->dns_msgid[0];
+        for (i = 1; i < queue_header->sniffer[proc_idx].cfg_info->dns_msgid[0]; i++) {
+            int cfg_dns_msgid = queue_header->sniffer[proc_idx].cfg_info->dns_msgid[i];
+            queue_header->sniffer[proc_idx].dns_msgid[i] = spo_create_msg_queue(cfg_dns_msgid, 0666);
+            printf("cfg id %d sniffer dns msgid %d\n", cfg_dns_msgid, queue_header->sniffer[proc_idx].dns_msgid[i]);
+        }
+
+        /* signal SIGUSR1, SIGUSR2, mask all sig */
+        spo_fill_sigmask(&set);
+
+        spo_del_sig_in_set(SIGUSR1, &set);
+        spo_del_sig_in_set(SIGUSR2, &set);
+
+        spo_signal_a_sigset(&set);
+        spo_signal_a_sig(SIGUSR1, spo_timeto_update_http_domain);
+        /********************  set sigusr2 to update dns rbt ************************************/
+
+        /* bind cpu */
+        int cpuid = queue_header->sniffer[proc_idx].cfg_info->cpu_id % sysconf(_SC_NPROCESSORS_CONF);
+        spo_bind_cpu(cpuid, queue_header->sniffer[proc_idx].pid);
+
+        /* run proc */
+        queue_header->sniffer[proc_idx].work_func((void *) queue_header->sniffer[proc_idx].cfg_info);
+        return SPOOFER_OK;
+    }
+
+    /* create the spoofers proc pool */
+    pid = spo_create_proc_pool(cfg->dns_spoofers, queue_header->spoofer);
+
+    if (pid == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+    if (pid > 0) {
+        /* run the spoofers proc */
+        //go to do updata ----------------------------------
+        //go to create a msg by cfg info
+
+        /**********************************************************************************/
+        printf("i am spoofer %ld\n", (long)getpid());
+        int cpuid = queue_header->spoofer[proc_idx].cfg_info->cpu_id % sysconf(_SC_NPROCESSORS_CONF);
+        spo_bind_cpu(cpuid, queue_header->spoofer[proc_idx].pid);
+
+        queue_header->spoofer[proc_idx].work_func((void *) queue_header->spoofer[proc_idx].cfg_info);
+
+        return SPOOFER_OK;
+    }
+
+    return SPOOFER_OK;
+}
+
+/*****************************************************************************************/
+
+SPO_RET_STATUS_INT spo_spoofer_proc_rebirth(spo_proc_node_t *proc_node) {
+
+    pid_t pid;
+
+    if (proc_node == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    pid = fork();
+
+    if (pid < 0) {
+        perror("fork err in rebirth sub proc\n");
+        return SPOOFER_FAILURE;
+    }
+
+    if (pid > 0) {                          /* parent proc */
+        proc_node->pid = pid;
+        proc_node->cfg_info->pid = pid;
+        return 0;
+    }else {
+
+        /**************** cheak the msg queue and mask sig and signal TERM to del msg queue ***********/
+
+        /* record idx and pid */
+        proc_idx = proc_node->proc_idx;
+        proc_node->pid = getpid();
+
+        printf("spoofer rebirth %ld\n", (long)getpid());
+
+        /* check the msg queue */
+        //int cfg_dns_msgid = proc_node->cfg_info->dns_msgid;
+        //cfg_dns_msgid = cfg_dns_msgid;
+        /******************************  msg queue here ***************************/
+
+        /* bind cpu */
+        int cpuid = proc_node->cfg_info->cpu_id % sysconf(_SC_NPROCESSORS_CONF);
+        spo_bind_cpu(cpuid, pid);
+
+        /* run sub proc */
+        proc_node->work_func((void *) proc_node->cfg_info);
+        return pid;
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+
+SPO_RET_STATUS_INT spo_sniffer_proc_rebirth(spo_proc_node_t *proc_node) {
+
+    pid_t pid;
+
+    if (proc_node == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    pid = fork();
+
+    if (pid < 0) {
+        perror("fork err in rebirth sub proc\n");
+        return SPOOFER_FAILURE;
+    }
+
+    if (pid > 0) {                          /* parent proc */
+        proc_node->pid = pid;
+        proc_node->cfg_info->pid = pid;
+        return 0;
+    }else {
+
+        sigset_t set;
+        memset(&set, '\0', sizeof(sigset_t));
+
+        /* record idx and pid */
+        proc_idx = proc_node->proc_idx;
+        proc_node->pid = getpid();
+
+        /* check the msg queue */
+
+        int i = 0;
+        for (i = 1; i <  proc_node->cfg_info->http_msgid[0]; i++) {
+            int cfg_http_msgid = proc_node->cfg_info->http_msgid[i];
+            int http_msgid = spo_create_msg_queue(cfg_http_msgid, 0666);
+            proc_node->http_msgid[i] = http_msgid;
+        }
+
+        /*deal with the dns msgis array*/
+
+        for (i = 1; i < proc_node->cfg_info->dns_msgid[0]; i++) {
+            int cfg_dns_msgid = proc_node->cfg_info->dns_msgid[i];
+            int dns_msgid = spo_create_msg_queue(cfg_dns_msgid, 0666);
+            proc_node->dns_msgid[i] = dns_msgid;
+        }
+
+        /* bind cpu */
+        int cpuid = proc_node->cfg_info->cpu_id % sysconf(_SC_NPROCESSORS_CONF);
+        spo_bind_cpu(cpuid, pid);
+
+        spo_del_sig_in_set(SIGUSR1, &set);
+        spo_del_sig_in_set(SIGUSR2, &set);
+
+        spo_signal_a_sigset(&set);
+        spo_signal_a_sig(SIGUSR1, spo_timeto_update_http_domain);
+        /***************************  sigusr2 to update dns rbt ********************************/
+
+        /* run sub proc */
+        proc_node->work_func((void *) proc_node->cfg_info);
+
+        return pid;
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+void spo_subporc_dead(int sig) {
+
+    if (sig == SIGCHLD) {
+        printf("get child\n");
+        int i = 0;
+        int ret = 0;
+        int status;
+
+        pid_t pid = waitpid(-1, &status, WNOHANG);
+
+        spo_proc_queue_t *queue_header = proc_queue_header;
+
+        /* find the pid in sniffers */
+        for (i = 0; i < queue_header->sniffer_n; i++) {
+            if (pid == queue_header->sniffer[i].pid) {
+                printf("find sniffer pid %ld dead\n", (long)pid);
+                ret = spo_sniffer_proc_rebirth(&queue_header->sniffer[i]);
+                if (ret == SPOOFER_FAILURE || ret > 0) {
+                    perror("sub proc rebirth err\n");
+                    if (ret > 0) {
+                        exit(EXIT_SUCCESS);
+                    }
+                    return;
+                }
+
+                return;
+            }
+        }
+
+        /* find the pid in spoofer */
+        for (i = 0; i < queue_header->spoofer_n; i++) {
+            if (pid == queue_header->spoofer[i].pid) {
+                printf("find spoofer pid %ld dead\n", (long)pid);
+                ret = spo_spoofer_proc_rebirth(&queue_header->spoofer[i]);
+                if (ret == SPOOFER_FAILURE || ret > 0) {
+                    perror("sub proc rebirth err\n");
+                    if (ret > 0) {
+                        exit(EXIT_SUCCESS);
+                    }
+                    return;
+                }
+
+                return;
+            }
+        }
+    }
+}
+
+
+/************************************* end rebirth  *************************************************/
+
+/**
+ *
+ *  here we are going to init the system.
+ *
+ *  load the config, create and init proc queue header.
+ *
+ *  init proc node and start sub proc to sniffer or spoofer.
+ *
+ *  @param cfg, is the global's config file struct.
+ *
+ *  @param queue_header, is the global's proc queue header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_system(spo_proc_queue_t *queue_header) {
+    //create msg queue
+    //signal
+    //test sub module
+
+    /* http rbt */
+    spo_http_dmn = spo_calloc(sizeof(spo_dmn_t));
+    if (spo_http_dmn == NULL) {
+        perror("malloc spo_http_dmn err\n");
+        exit(EXIT_FAILURE);
+    }
+
+    spo_http_dmn->rbt_header = NULL;
+    spo_http_dmn->rbt_header =  spo_load_domain_cfg((const char *)"http_domain_config");
+
+    if (spo_http_dmn->rbt_header == NULL) {
+        printf("load domain err\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* for test */
+    spo_pre_order(&spo_http_dmn->rbt_header->rbt_node_header->link, visit);
+
+    printf("\n\n\n");
+
+
+    /* dns rbt */
+    spo_dns_dmn = spo_calloc(sizeof(spo_dmn_t));
+    if (spo_http_dmn == NULL) {
+        perror("malloc spo_http_dmn err\n");
+        exit(EXIT_FAILURE);
+    }
+
+    spo_dns_dmn->rbt_header = NULL;
+    spo_dns_dmn->rbt_header =  spo_load_domain_cfg((const char *)"dns_domain_config");
+
+    if (spo_dns_dmn->rbt_header == NULL) {
+        printf("load domain err\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* for test */
+    spo_pre_order(&spo_dns_dmn->rbt_header->rbt_node_header->link, visit);
+
+    printf("\n\n\n");
+
+
+
+
+
+
+    //return SPOOFER_OK;
+
+    /* load the config file */
+    spo_cfg = spo_load_config((const char *)"config");
+    if (spo_cfg == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+    /* set packet max size */
+    max_dns_packet_size = spo_cfg->max_dns_packet_size;
+    max_http_pacekt_size = spo_cfg->max_http_packet_size;
+
+    /* create the proc queue header */
+    queue_header = spo_create_proc_queue_header();
+    if (queue_header == NULL) {
+        printf("malloc proc queue header err\n");
+        exit(EXIT_FAILURE);
+    }
+
+    proc_queue_header = queue_header;
+
+    /* create the proc node for proc queue */
+    if (spo_init_proc_queue_header(spo_cfg, queue_header) == SPOOFER_FAILURE) {
+        perror("init proc queue header\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* init the info to proc node */
+    spo_init_proc_node(spo_cfg, queue_header);
+
+    /* start the  */
+    spo_start_sbu_process(spo_cfg, queue_header);
+
+    /* go to log module and update config module */
+    pthread_t tid = 0;
+    spo_update_info_t update_info;
+
+    memset(&update_info, '\0', sizeof(spo_update_info_t));
+
+    update_info.update_time = 5;
+    memcpy(update_info.http_file_name, "http_domain_config", strlen("http_domain_config"));
+
+    memcpy(update_info.dns_file_name, "dns_domain_config", strlen("dns_domain_config"));
+
+    pthread_create(&tid, NULL, spo_check_domain_cfg, &update_info);
+
+    signal(SIGCHLD, spo_subporc_dead);  /*************** change to sigaction ********************/
+
+    while (1) {
+        sleep(1);
+    }
+
+    printf("finished init\n");
+    return SPOOFER_OK;
+}
+
+
+
+int main () {
+	
+	pid_t pid;
+
+	pid = getpid();
+    printf("pid main -- %ld\n", pid);
+    spo_bind_cpu(2, pid);
+
+    spo_init_system(proc_queue_header);
+    return 0;
+}
+

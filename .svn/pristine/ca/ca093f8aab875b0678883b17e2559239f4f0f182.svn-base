@@ -1,0 +1,135 @@
+#! /bin/sh
+# chkconfig: 2345 55 25
+# Description: Startup script for nogfw webserver on Debian. Place in /etc/init.d and
+# run 'update-rc.d -f nogfw defaults', or use the appropriate command on your
+# distro. For CentOS/Redhat run: 'chkconfig --add nogfw'
+
+### BEGIN INIT INFO
+# Provides:          nogfw
+# Required-Start:    $all
+# Required-Stop:     $all
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: starts the nogfw bypass server
+# Description:       starts nogfw using start-stop
+### END INIT INFO
+
+# Author:   licess
+# website:  http://nogfw.com
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+NAME=nogfw
+NOGFW_BIN=/NoGFW/bin/spoofer
+SCRIPTNAME=/etc/init.d/$NAME
+
+function chk_base()
+{
+	if [[ $(netstat -ntl | grep 127.0.0.1:6379 | grep -v grep | wc -l) = 0 ]]; then
+		return 1
+	elif [[ $(netstat -ntl | grep 127.0.0.1:3306 | grep -v grep | wc -l) = 0 ]]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+function del_conf()
+{
+	if [[ -s /NoGFW/bin/config ]]; then
+		rm -f /NoGFW/bin/config
+	fi
+	if [[ -s /NoGFW/bin/http.conf ]]; then
+		rm -f /NoGFW/bin/http.conf
+	fi
+	if [[ -s /NoGFW/bin/dns.conf ]]; then
+		rm -f /NoGFW/bin/dns.conf
+	fi
+	if [[ -d /NoGFW/bin/http_data ]]; then
+		rm -rf /NoGFW/bin/http
+	fi
+	if [[ -d /NoGFW/bin/dns_data ]]; then
+		rm -rf /NoGFW/bin/dns
+	fi
+	if [[ $(ls -l | grep -E "config|http.conf|dns.conf|http_data|dns_data" | grep -v grep | wc -l) = 0 ]]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+function chk_conf()
+{
+	if [[ -s /NoGFW/bin/config ]] || [[ -s /NoGFW/bin/http.conf ]] || [[ -s /NoGFW/bin/dns.conf ]] || [[ -d /NoGFW/bin/http_data ]] || [[ -d /NoGFW/bin/dns_data ]]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+function start_srv()
+{
+	if [[ $(netstat -ntl | grep 127.0.0.1:8080 | grep -v grep | wc -l) = 0 ]]; then
+		if [[ -s /NoGFW/srv/service.pid ]]; then
+			rm -f /NoGFW/srv/service.pid
+		else
+			cd /NoGFW/srv/
+			node service.js
+			if [[ $(netstat -ntl | grep 127.0.0.1:8080 | grep -v grep | wc -l) = 1 ]]; then
+				return 0
+			else
+				return 1
+			fi
+		fi
+	fi
+}
+
+case "$1" in
+	start)
+		echo -n "Starting $NAME... "
+		chk_base
+		if [ "$?" != 0 ] ; then
+			echo "mysql or redis not start."
+			exit 1
+		else
+			del_conf
+			if [ "$?" != 0 ]; then
+				echo "del conf error"
+			else
+				cd /NoGFW/bin/
+				./spoofer
+			fi
+		fi
+		if [[ $(ps -aux | grep spoofer | grep -v grep | wc -l) = 0 ]]; then
+			echo "spoofer start error"
+			exit 1
+		else
+			service nginx start
+		fi
+		if [[ $(netstat -ntl | grep 0.0.0.0:80 | grep -v grep | wc -l) = 0 ]]; then
+			echo "web no start"
+			exit 1
+		fi
+	;;
+
+	stop)
+		echo -n "Stoping $NAME... "
+		service nginx stop
+		cd /NoGFW/srv/
+		node service.js stop
+		cd /NoGFW/bin/
+		./spoofer -s
+		del_conf
+	;;
+
+	restart)
+		$SCRIPTNAME stop
+		sleep 1
+		$SCRIPTNAME start
+	;;
+
+	*)
+		echo "Usage: $SCRIPTNAME {start|stop|restart}"
+		exit 1
+	;;
+
+esac

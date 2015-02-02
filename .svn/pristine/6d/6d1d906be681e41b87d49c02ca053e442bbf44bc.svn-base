@@ -1,0 +1,23 @@
+{
+  "name": "kilo",
+  "version": "0.0.0",
+  "description": "Async flow control",
+  "main": "kilo.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha -R spec test/test.js"
+  },
+  "repository": "",
+  "author": {
+    "name": "stoke"
+  },
+  "license": "MIT",
+  "readme": "# Kilo\n\nJust a rewrite of [async](https://github.com/caolan/async). I'm bored.",
+  "readmeFilename": "README.md",
+  "_id": "kilo@0.0.0",
+  "_shasum": "2e388ce6c7a219236bcfc46f9935e689a241f70c",
+  "_resolved": "git://github.com/stoke/kilo.git#df9020269de589fe595b336c093bef072eac9cbf",
+  "_from": "kilo@git://github.com/stoke/kilo.git"
+}

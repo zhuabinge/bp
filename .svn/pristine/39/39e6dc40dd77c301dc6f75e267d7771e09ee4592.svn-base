@@ -1,0 +1,1 @@
+cmd_Release/msgget.node := ./gyp-mac-tool flock ./Release/linker.lock c++ -bundle -Wl,-search_paths_first -mmacosx-version-min=10.5 -arch x86_64 -L./Release  -o Release/msgget.node Release/obj.target/msgget/src/msgget.o Release/obj.target/msgget/src/msgsnd.o Release/obj.target/msgget/src/msgrcv.o Release/obj.target/msgget/src/main.o -undefined dynamic_lookup

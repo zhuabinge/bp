@@ -1,0 +1,73 @@
+{include file='before_body.phtml'}
+<body class='contrast-fb without-footer'>
+  {include file='header.phtml'}
+  <div id='wrapper'>
+    {include file='sidebar.phtml'}
+    <section id='content'>
+      <div class='container'>
+        <div class='row' id='content-wrapper'>
+          <div class='col-xs-12'>
+            <div class='page-header page-header-with-buttons'>
+              <h1 class='pull-left'>
+                <i class='icon-home'></i>
+                <span>CPU和内存</span>
+              </h1>
+            </div>
+            <div class='row'>
+              <div class='col-sm-12'>
+                <div class='tabbable'>
+                  <ul class='nav nav-tabs'>
+                    <li class='active'>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(1)">
+                        <i class='icon-bookmark'></i>
+                        今天
+                      </a>
+                    </li>
+                    <li>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(2)">
+                        <i class='icon-bookmark'></i>
+                        7天
+                      </a>
+                    </li>
+                    <li>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(3)">
+                        <i class='icon-bookmark'></i>
+                        30天
+                      </a>
+                    </li>
+                  </ul>
+                  <div class='tab-content'>
+                    <div class='tab-pane' id='tabData' style="display:block;">
+                      <script type="text/javascript" src="{$tpldir}/echarts/build/dist/echarts.js"></script>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {include file='footer.phtml'}
+      </div>
+    </section>
+  </div>
+</body>
+{include file='after_body.phtml'}
+<script type="text/javascript">
+function getPage(page) {
+  $.ajax({
+    url: "{url('device/getCPU_mem')}",
+    type: 'POST',
+    data: { type: page },
+    datatype: 'json',
+    success: function(data){
+      $('#tabData').html(data);
+    }
+  });
+}
+window.onload = function() {
+  getPage(1);
+};
+</script>
+</html>
+
+

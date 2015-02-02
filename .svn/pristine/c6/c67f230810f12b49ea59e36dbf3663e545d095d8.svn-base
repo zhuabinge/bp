@@ -1,0 +1,36 @@
+TEMPLATE = app
+CONFIG += console
+CONFIG -= app_bundle
+CONFIG -= qt
+
+SOURCES += \
+    spoofer_kernel/kernel.c \
+    spoofer_rb_tree/rb_tree.c \
+    spoofer_sniffer/sniffer.c \
+    spoofer_config/config.c \
+    spoofer_load_data/load_data.c \
+    spoofer_mem_pool/mem_pool.c \
+    spoofer_ipcs/ipcs.c \
+    spoofer_main/spoofer.c \
+    spoofer_log/spoofer_log.c \
+    spoofer_file/spoofer_file.c \
+    spoofer_test/test.c \
+    spoofer_sender/sender.c
+
+OTHER_FILES += \
+    spoofer_main/readme.txt
+
+HEADERS += \
+    spoofer_main/spoofer.h \
+    spoofer_main/spoofer_main.h \
+    spoofer_mem_pool/mem_pool.h \
+    spoofer_ipcs/spoofer_ipcs.h \
+    spoofer_log/spoofer_log.h \
+    spoofer_kernel/spoofer_kernel.h \
+    spoofer_file/spoofer_file.h \
+    spoofer_test/test.h \
+    spoofer_sniffer/spoofer_sniffer.h \
+    spoofer_sender/spoofer_sender.h \
+    spoofer_config/spoofer_config.h
+
+unix|win32: LIBS += -lpfring -lpthread -lpcap -lrt -lnuma -lnet

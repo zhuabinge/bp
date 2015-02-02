@@ -1,0 +1,304 @@
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_kernel.h"
+
+#include "../spoofer_config/spoofer_config.h"
+#include "../spoofer_mem_pool/mem_pool.h"
+
+
+
+/**
+ *
+ *  init the string.
+ *
+ *  set the data to null, the len to 0.
+ *
+ *  @param str, is the string have to init.
+ *
+ *  @param n, the amount of the string array.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_string(spo_str_t *str, int n) {
+
+    int i = 0;
+
+    if (str == NULL || n <= 0) {
+        return SPOOFER_FAILURE;
+    }
+
+    for (i = 0; i < n; i++) {
+        str[i].data = NULL;
+        str[i].len = 0;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init the rbt header.
+ *
+ *  @param rbt_header, is the rbt header struct.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_rbt_header(spo_rbt_header_t *rbt_header) {
+
+    if (rbt_header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    rbt_header->rbt_type = -1;
+    rbt_header->amonut = 0;
+    rbt_header->c = NULL;
+    rbt_header->rbt_node_header = NULL;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init the rbt node.
+ *
+ *  @param node, is the rbt node.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_rbt_node(spo_rbt_node_t *node) {
+
+    if (node == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    node->key = NULL;               /* the key is spo_cfg_dmn_url_t */
+    node->link.next = NULL;
+    node->link.prev = NULL;
+    node->next = NULL;
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  destory a rbt.
+ *
+ *  @param cnt, is the container for rbt.
+ *
+ *  @param free_node_key, is the func to free the node key.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+void spo_destory_rbt(spo_que_ctn_t *cnt, int (*free_node_key) (void *)) {
+
+    if(cnt == NULL){
+        return;
+    }
+
+    spo_destory_rbt(cnt->prev, free_node_key);
+    spo_destory_rbt(cnt->next, free_node_key);
+
+    spo_rbt_node_t *node = spo_container_data(cnt, spo_rbt_node_t, link);
+
+    free_node_key(node->key);
+
+    spo_free(node);
+}
+
+
+/**
+ *
+ *  destory a rbt header.
+ *
+ *  @param rbt_header, is the header of this rbt.
+ *
+ *  @param free_node_key, is the func to free this node key.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_destory_rbt_header(spo_rbt_header_t *rbt_header, int (*free_node_key) (void *)) {
+
+    if (rbt_header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (rbt_header->rbt_node_header != NULL) {
+        spo_rbt_node_t *node = rbt_header->rbt_node_header;
+        spo_que_ctn_t *link = &node->link;
+        spo_destory_rbt(link, free_node_key);
+    }
+
+    spo_free(rbt_header);
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  insert a rbt node to rbt.
+ *
+ *  @param rbt_header, is the rbt header.
+ *
+ *  @param node, is the node that have to insert to rbt.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_insert_rbt(spo_rbt_header_t *rbt_header, spo_rbt_node_t *node) {
+
+    int node_len =  ((spo_cfg_dmn_url_t *)node->key)->domain.len;
+    int data_len = 0;
+    u_char *node_value = ((spo_cfg_dmn_url_t *)node->key)->domain.data;
+    u_char *data_value = NULL;
+
+    spo_que_ctn_t *p = NULL;
+    spo_que_ctn_t *parent = NULL;
+    spo_rbt_node_t *data = NULL;
+
+    if (rbt_header == NULL || node == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (rbt_header->rbt_node_header == NULL) {
+        rbt_header->rbt_node_header = node;
+        return SPOOFER_OK;
+    }
+
+    p = &rbt_header->rbt_node_header->link;
+
+    /* find the insert point */
+    while (p != NULL) {
+        parent = p;
+        data = spo_container_data(p, spo_rbt_node_t, link);
+
+        data_len = ((spo_cfg_dmn_url_t *)data->key)->domain.len;
+        data_value = ((spo_cfg_dmn_url_t *)data->key)->domain.data;
+
+        /* node > data, goto rignt, node <= data, goto left  */
+        if (node_len > data_len) {      /* node len > data len, go to right */
+            p = p->next;
+        }else {
+            if (node_len < data_len) {  /* go to left */
+                p = p->prev;
+            }else {
+                if (memcmp(node_value, data_value, node_len) > 0) {
+                    p = p->next;
+                }else {
+                    p = p->prev;
+                }
+            }
+        }
+    }
+
+    /* insert node */
+    data = spo_container_data(parent, spo_rbt_node_t, link);
+    data_len = ((spo_cfg_dmn_url_t *)data->key)->domain.len;
+    data_value = ((spo_cfg_dmn_url_t *)data->key)->domain.data;
+
+    if (node_len > data_len) {
+        parent->next = &node->link;
+    }else {
+        if (node_len < data_len) {
+            parent->prev = &node->link;
+        }else {
+            if (memcmp(node_value, data_value, node_len) > 0) {
+                parent->next = &node->link;
+            }else {
+                parent->prev = &node->link;
+            }
+        }
+    }
+
+    rbt_header->amonut++;
+    return SPOOFER_OK;
+}
+
+
+spo_rbt_node_t *spo_domain_match(spo_rbt_header_t *rbt_header, spo_str_t *host) {
+
+    size_t node_len = 0;
+
+    spo_rbt_node_t *node = NULL;
+    u_char *node_dmn = NULL;
+    spo_que_ctn_t *p = NULL;
+
+    if (rbt_header == NULL || host == NULL) {
+        return NULL;
+    }
+
+    p = &rbt_header->rbt_node_header->link;
+
+    while (p != NULL) {
+
+        node = spo_container_data(p, spo_rbt_node_t, link);
+        node_dmn = ((spo_cfg_dmn_url_t *) node->key)->domain.data;
+        node_len = ((spo_cfg_dmn_url_t *) node->key)->domain.len;
+
+        if (host->len > node_len) {
+            p = p->next;
+        }else {
+            if (host->len < node_len) {
+                p = p->prev;
+            }else {
+                if (memcmp(host->data, node_dmn, node_len) > 0) {
+                    p = p->next;
+                }else {
+                    if (memcmp(host->data, node_dmn, node_len) < 0) {
+                        p = p->prev;
+                    }else {
+                        return node;
+                    }
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+
+
+
+
+/* for test */
+int visit(void *ss) {
+
+    spo_cfg_dmn_url_t *dmn_url = (spo_cfg_dmn_url_t *) ss;
+    printf("%s\n", dmn_url->domain.data);
+
+    return 1;
+}
+
+
+/* print the tree, for test */
+SPO_RET_STATUS_INT spo_pre_order(spo_que_ctn_t *cnt,int (*visit)(void *ss)) {
+
+    if(cnt)
+    {
+        spo_rbt_node_t *data = NULL;
+        data = spo_container_data(cnt, spo_rbt_node_t, link);
+        if(visit(data->key))
+            if(spo_pre_order(cnt->prev,visit))
+                if(spo_pre_order(cnt->next,visit))
+                    return 1;
+        return 0;
+    }else {
+        return 1;
+    }
+
+}

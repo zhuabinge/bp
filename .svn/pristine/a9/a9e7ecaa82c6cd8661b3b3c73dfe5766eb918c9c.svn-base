@@ -1,0 +1,50 @@
+<spo_domain www.vip.com>
+  url: /^\/detail-([0-9]+)-([0-9]+)\.html/,,,cookies: !/(; cps=.*|vip_spof=12u1spof)/,,,referer: ,,,@1
+</spo_domain>
+
+<spo_domain product.dangdang.com>
+  url: /^\/([0-9]+\.html)/,,,cookies: !/(; from=.*|dd_spof=12euddspof)/,,,referer: ,,,@2
+</spo_domain>
+
+<spo_domain item.yhd.com>
+	url: /^/item/[0-9]+\??/,,,cookies: !/(; unionKey=.*|yhd_spo=12yhdspof)/,,,referer: ,,,@3
+</spo_domain>
+
+<spo_domain pop.jumei.com>
+  url: /^\/i\/deal\/(.*)\.html\??/,,,cookies: !/(; an_sub_src=.*|jumei_spof=123njspof)/,,,referer: ,,,@4
+</spo_domain>
+
+<spo_domain t.dianping.com>
+  url: /^\/deal\/.*/,,,cookies: !/(; lpn|dp_spof=121dpspof)/,,,referer: ,,,@5
+</spo_domain>
+
+<spo_domain www.gome.com.cn>
+  url: /^\/product\/.*/,,,cookies: !/(; feedback=.*|gome_spof=a1qspof)/,,,referer: ,,,@6
+</spo_domain>
+
+<spo_domain product.lefeng.com>
+  url: /^\/product\/([0-9]+)\.html/,,,cookies: !/(; cid2=.*|lf_spof=12lfspof)/,,,referer: ,,,@7
+</spo_domain>
+
+<spo_domain www.yougou.com>
+  url: /^\/(.+)\/(.*-[0-9]+)\.shtml(.*)$/,,,cookies: !/(; __ygcpsp=.*|yg_spof=1yg3spof)/,,,referer: ,,,@8
+</spo_domain>
+
+<spo_domain item.mi.com>
+  url: ,,,cookies: !/(; mucid=.*|mi_spof=1dmispof)/,,,referer: ,,,@9
+</spo_domain>
+
+<spo_domain shop.mogujie.com>
+  url: /\/detail\/.+/,,,cookies: !/(; __cpsuid=.*|mgj_spof=1dmgj_spof)/,,,referer: ,,,@11
+</spo_domain>
+
+<spo_domain www.qq.com>
+	url: /.*/,,,cookies: ,,,referer: ,,,@80
+</spo_domain>
+
+
+
+
+
+
+

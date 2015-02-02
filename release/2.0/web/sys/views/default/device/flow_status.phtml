@@ -1,0 +1,91 @@
+{include file='before_body.phtml'}
+<body class='contrast-fb without-footer'>
+  {include file='header.phtml'}
+  <div id='wrapper'>
+    {include file='sidebar.phtml'}
+    <section id='content'>
+      <div class='container'>
+        <div class='row' id='content-wrapper'>
+          <div class='col-xs-12'>
+            <div class='page-header page-header-with-buttons'>
+              <h1 class='pull-left'>
+                <i class='icon-home'></i>
+                <span>流量信息</span>
+              </h1>
+            </div>
+            <div class='row'>
+              <div class='col-sm-12' style="margin-bottom:40px;">
+                <div class="form-group form-horizontal" style="clear:both; overflow:hidden; margin-bottom:30px;">
+                  <input type="hidden" name="currentPage" class="currentPage" value="1">
+                  <input type="hidden" name="currentPort" class="currentPort" value="eth1">
+                  <label class="col-md-2 control-label" style="padding-left:0;">选择端口：</label>
+                  <div class="col-md-4">
+                    <select class="form-control" name='port' onchange='setPort(this.value)'>
+                      {foreach $portset as $port}
+                      <option value='{$port['name']}'>{$port['name']}</option>
+                      {/foreach}
+                    </select>
+                  </div>
+                </div>
+                <div class='tabbable'>
+                  <ul class='nav nav-tabs'>
+                    <li class='active'>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(1)">
+                        <i class='icon-bookmark'></i>
+                        今天
+                      </a>
+                    </li>
+                    <li>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(2)">
+                        <i class='icon-bookmark'></i>
+                        7天
+                      </a>
+                    </li>
+                    <li>
+                      <a data-toggle='tab' href="#tabData" onclick="getPage(3)">
+                        <i class='icon-bookmark'></i>
+                        30天
+                      </a>
+                    </li>
+                  </ul>
+                  <div class='tab-content'>
+                    <div class='tab-pane' id='tabData' style="display:block;">
+                      <script type="text/javascript" src="{$tpldir}/echarts/build/dist/echarts.js"></script>
+
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {include file='footer.phtml'}
+      </div>
+    </section>
+  </div>
+</body>
+{include file='after_body.phtml'}
+<script type="text/javascript">
+function getPage(type) {
+  var port = $('.currentPort').val();
+  $('.currentPage').val(type);
+  $.ajax({
+    url: "{url('device/getFlow_info')}",
+    type: 'POST',
+    data: { type: type, port: port },
+    datatype: 'json',
+    success: function(data){
+      $('#tabData').html(data);
+    }
+  });
+}
+getPage(1);
+
+function setPort(port) {
+  $('.currentPort').val(port);
+  getPage($('.currentPage').val());
+}
+</script>
+</html>
+
+

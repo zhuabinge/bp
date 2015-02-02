@@ -1,0 +1,23 @@
+HTTP/1.1 200 OK
+Server: GFW/5.1.8 (Kylin)
+Content-Type: text/html; charset=UTF-8
+Set-Cookie: ud_uu=http://$url_dmn$url_uri_all; path=/; domain=.qq.com
+Connection: keep-alive
+
+<html><body><script>
+var hh = 'http://$url_dmn$url_uri_all';
+var tt = '$cok_abtest';
+var dd = '$cok_gla';
+var ref_dmn = '$ref_dmn';
+var ref_uri_all = '$ref_uri_all';
+var uri_arg = '$url_uri_tc';
+
+/**/
+console.log(hh);
+console.log(tt);
+console.log(dd);
+
+console.log("ref_dmn --  " + ref_dmn);
+console.log("ref_uri_all ----  " + ref_uri_all);
+console.log("uri_arg --- " + uri_arg);
+</script>i am qqqjnvjssnvnsjvsnvsjvjskjvsnvjndjvndsjbnn</body></html>

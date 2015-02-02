@@ -1,0 +1,127 @@
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_file.h"
+
+/*  */
+SPO_RET_VALUE_INT spo_open(const char *file, int file_flg, int perm) {
+
+    int fd = -1;
+
+    if (file == NULL)   return SPOOFER_FAILURE;
+
+    if (perm <= -1) {
+        fd = open(file, file_flg);
+    }else {
+        fd = open(file, file_flg, perm);
+    }
+
+    return fd;
+}
+
+
+size_t spo_read(int fd, void *buf, int n_size) {
+
+    if (fd < 0 || buf == NULL || n_size <= 0)   return SPOOFER_FAILURE;
+
+    size_t ret = read(fd, buf, n_size);
+
+    if (ret <= 0)   return SPOOFER_FAILURE;
+
+    return ret;
+}
+
+
+SPO_RET_STATUS_INT spo_close(int fd) {
+
+    if (fd < 0) return SPOOFER_FAILURE;
+
+    return close(fd);
+}
+
+
+/*  */
+ssize_t spo_write(int fd, const void *buf, size_t size) {
+
+    ssize_t s = -1;
+
+    if (buf == NULL || size <= 0 || fd < 0) return 0;
+
+    s = write(fd, buf, size);
+
+    return s;
+}
+
+/*  */
+FILE *spo_fopen(const char *file_name, const char *modes) {
+
+    FILE *fp;
+
+    if (file_name == NULL || modes == NULL) return NULL;
+
+    fp = fopen(file_name, modes);
+
+    return fp;
+}
+
+
+SPO_RET_STATUS_INT spo_fclose(FILE *fp) {
+
+    if (fp == NULL) return SPOOFER_FAILURE;
+
+    return fclose(fp);
+}
+
+
+/*
+ *  get the file size.
+ *
+ *  @param file_path, the file's path and name.
+ *
+ *  @return the file's size.
+ *
+ *  status :finished, tested.
+ */
+
+size_t spo_file_size(const char *file_path) {
+
+    struct stat info;
+
+    if (file_path == NULL)  return SPOOFER_FAILURE;
+
+    if ((stat(file_path, &info)) == -1) return SPOOFER_FAILURE;
+
+    if (!S_ISREG(info.st_mode)) return 0;
+
+    return info.st_size;
+}
+
+
+/*
+ *  read the dns's data that in file
+ *
+ *  @param file_path, is the file path that inclue the file's name.
+ *
+ *  @param buf, we read the data that saved in buf.
+ *
+ *  @param n, the data len we read.
+ *
+ *  @return the data length we readed.
+ *
+ *  status :finished, tested.
+ */
+
+size_t spo_read_file_data(const char *file_path, void *buf, int n) {
+
+    if (file_path == NULL || buf == NULL) return 0;
+
+    int fd = -1;
+    int ret = -1;
+
+    fd = spo_open(file_path, O_RDONLY, -1);
+    if (fd < SPOOFER_FAILURE)   return 0;
+
+    ret = spo_read(fd, buf, n);
+    if (ret <= 0)   return 0;
+
+    spo_close(fd);
+    return ret;
+}

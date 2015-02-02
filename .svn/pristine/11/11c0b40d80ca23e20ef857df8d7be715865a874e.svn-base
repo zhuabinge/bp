@@ -1,0 +1,69 @@
+#ifndef SPOOFER_MAIN_H
+#define SPOOFER_MAIN_H
+
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <assert.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <sys/sendfile.h>
+#include <errno.h>
+#include <netinet/if_ether.h>
+#include <net/ethernet.h>
+#include <netinet/ether.h>
+#include <libnet.h>
+
+#define SPO_RET_STATUS_INT  int      /* the func return status, is int */
+#define SPO_RET_VALUE_INT   int      /* the func return value, is int */
+#define SPO_RET_BOOLEN_INT  int      /* the func return boolen, is int */
+
+#define SPOOFER_OK (0)          /* ok, for the return value */
+#define SPOOFER_FALSE (0)       /* false, for the return value */
+#define SPOOFER_TRUE (1)        /* true, for the conditions */
+#define SPOOFER_FAILURE (-1)    /* failure, for the return value */
+#define SPOOFER_NOT_HTTP (-2)   /* when analysis packet, if the packet not a http packet, we return this*/
+
+#define SPOOFER_LOG_OPEN (0)
+#define SPOOFER_LOG_CLOSE (-1)
+
+/* pool */
+typedef struct spo_big_pool_s spo_big_pool_t;   /* big mem pool */
+typedef struct spo_pool_s spo_pool_t;           /* mem pool */
+
+/* config */
+typedef struct spo_config_info_block_s spo_cfg_ifo_blk_t;
+
+/* mark a process */
+typedef struct spo_proc_node_s {
+    pid_t pid;
+    int proc_idx;
+    int http_msgid[17];
+    int dns_msgid[9];
+    spo_cfg_ifo_blk_t *cfg_info;    /* save the scope in config file */
+    void (*work_func) (void *);
+}spo_proc_node_t;
+
+
+typedef struct spo_proc_queue_s {
+    int sniffer_n;
+    int spoofer_n;
+
+    spo_proc_node_t *sniffer;
+    spo_proc_node_t *spoofer;
+    spo_proc_node_t *log;           //have to remove, use thread to replace
+    spo_proc_node_t *cfg_updater;   //have to remove, use thread to replace
+}spo_proc_queue_t;
+
+extern spo_proc_queue_t *proc_queue_header;
+extern int proc_idx;
+extern int msgids[10];
+extern int max_dns_packet_size;
+extern int max_http_pacekt_size;
+
+#endif // SPOOFER_MAIN_H

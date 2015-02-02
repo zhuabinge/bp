@@ -1,0 +1,1126 @@
+#include <pthread.h>
+
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_config.h"
+
+#include "../spoofer_file/spoofer_file.h"
+#include "../spoofer_mem_pool/mem_pool.h"
+
+#define SPOOFER_CFG_START           (-1)        /* this is the status at start to analysis the cfg file */
+#define SPOOFER_OUT_SCOPE           (0)         /* the line is out of scope */
+#define SPOOFER_IN_INFO_SCOPE       (1)         /* the line is in spo_info scope */
+#define SPOOFER_IN_DOMAIN_SCOPE     (2)         /* the line is in spo_domain scope */
+
+
+
+/*
+ *  after read a new line, we remove the Space in start and end
+ *
+ *  @param line, the current we readed.
+ *
+ *  @return char *, is the line.
+ *
+ */
+
+
+static char *spo_deal_with_line(char *line) {
+
+    char *ch = line;
+    char *end = NULL;
+    int i = 0;
+    int len = strlen(line);
+
+    if (line == NULL) return NULL;
+
+    /* remove the '\n' in the end of the line */
+    if (line[len - 1] == '\n') {
+        line[len - 1] = '\0';
+    }
+
+    /* remove the spcae in the line start */
+    while ((*ch == ' ' || *ch == '\t') && i < len) {
+        ch++;
+        i++;
+    }
+
+    end = line + len - 2;
+
+    while ((*end == ' ' || *end == '\t') && len > 0) {
+        end--;
+    }
+
+    end++;
+    *end = '\0';
+    return ch;
+}
+
+
+
+spo_dmn_t *spo_create_dmn() {
+
+    spo_dmn_t *dmn = NULL;
+
+    dmn = spo_calloc(sizeof(spo_dmn_t));
+    if (dmn == NULL) {
+        perror("malloc spo_http_dmn err\n");
+        return NULL;
+    }
+
+    dmn->rbt_header = NULL;
+
+    return dmn;
+}
+
+
+
+/**
+ *
+ *  init cfg struct.
+ *
+ *  @param cfg, is the spo_cfg_t struct we have to init.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_cfg(spo_cfg_t *cfg) {
+
+    if (cfg == NULL)    return SPOOFER_FAILURE;
+
+    cfg->cfg_ifo = NULL;
+    cfg->cfg_ifo_tail = NULL;
+    cfg->dns_spoofers = 0;
+    cfg->sniffers = 0;
+    cfg->max_dns_packet_size = 0;
+    cfg->max_http_packet_size = 0;
+    cfg->cfg_update_time = 0;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init the info struct block.
+ *
+ *  @param info_blk, isthe struct we have to init.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_cfg_info_blk(spo_cfg_ifo_blk_t *info_blk) {
+
+    if (info_blk == NULL)   return SPOOFER_FAILURE;
+
+    memset(info_blk, '\0', sizeof(spo_cfg_ifo_blk_t));
+
+    info_blk->cpu_id = 0;
+    info_blk->dev_r = NULL;
+    info_blk->dev_s = NULL;
+    info_blk->filter = NULL;
+    info_blk->http_msgid[0] = 1;
+    info_blk->dns_msgid[0] = 1;
+    info_blk->next = NULL;
+    info_blk->pid = 0;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init the domain_url struct block.
+ *
+ *  @param dmn, isthe struct we hace to init.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_cfg_dmn_blk(spo_cfg_dmn_blk_t *dmn) {
+
+    if (dmn == NULL)    return SPOOFER_FAILURE;
+
+    dmn->dmn_url = NULL;
+    dmn->dmn_url_tail = NULL;
+    dmn->next = NULL;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  init the spo_cfg_dmn_url_t struct.
+ *
+ *  @param dmn_url, is the struct we have to init.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_cfg_dmn_url(spo_cfg_dmn_url_t *dmn_url) {
+
+    if (dmn_url == NULL)    return SPOOFER_FAILURE;
+
+    dmn_url->domain.data = NULL;
+    dmn_url->domain.len = 0;
+    dmn_url->data.data = NULL;
+    dmn_url->data.len = 0;
+    dmn_url->next = NULL;
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  destory the cfg struct.
+ *
+ **/
+SPO_RET_STATUS_INT spo_destory_cfg(spo_cfg_t *cfg) {
+
+    if (cfg == NULL)    return SPOOFER_OK;
+
+    if (cfg->cfg_ifo != NULL) {
+        spo_cfg_ifo_blk_t *info_blk = cfg->cfg_ifo;
+        while (info_blk != NULL) {
+            cfg->cfg_ifo = cfg->cfg_ifo->next;
+            spo_free(info_blk);
+            info_blk = cfg->cfg_ifo;
+        }
+
+        cfg->cfg_ifo = NULL;
+        cfg->cfg_ifo_tail = NULL;
+    }
+
+    cfg->cfg_ifo = NULL;
+
+    spo_free(cfg);
+    cfg = NULL;
+    printf("destory cfg successful\n");
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  free the strutc spo_cfg_dmn_url_t
+ *
+ *  @param dmn_url_, is the array of spo_cfg_dmn_url_t struct.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_free_dmn_url(void *dmn_url_) {
+
+    spo_cfg_dmn_url_t *dmn_url = NULL;
+
+    if (dmn_url_ == NULL)   return SPOOFER_OK;
+
+    dmn_url = (spo_cfg_dmn_url_t *) dmn_url_;
+
+    spo_cfg_dmn_url_t *p = dmn_url;
+
+    while (p != NULL) {
+        dmn_url = dmn_url->next;
+
+        if (p->domain.data != NULL) {
+            spo_free(p->domain.data);
+            p->domain.data = NULL;
+            p->domain.len = 0;
+        }
+
+        if (p->data.data != NULL) {
+            spo_free(p->data.data);
+            p->data.data = NULL;
+            p->data.len = 0;
+        }
+
+        spo_free(p);
+        p = dmn_url;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  analysis the instruction in global.
+ *
+ *  @param cfg, is the config struct.
+ *
+ *  @param line, is the current line.
+ *
+ *  @param delim,  is the split symbols.
+ *
+ *  @return int, is the exec status.
+ *
+ * */
+
+static SPO_RET_STATUS_INT spo_analysis_global(spo_cfg_t *cfg, char *line, const char *delim) {
+
+    char *p = NULL;
+
+    if (cfg == NULL || line == NULL || delim == NULL)   return SPOOFER_FAILURE;
+
+    if ((p = strtok(line, delim)) == NULL)  return SPOOFER_FAILURE;
+
+    if (strcmp(p, "max_dns_packet_size") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            cfg->max_dns_packet_size = atoi(p);
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "max_http_packet_size") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            cfg->max_http_packet_size = atoi(p);
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "spo_sniffers") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            cfg->sniffers = atoi(p);
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "spo_dns_spoofers") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            cfg->dns_spoofers = atoi(p);
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "cfg_update_time") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            cfg->cfg_update_time = atoi(p);
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "dns_dmn_cfg_path") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            memcpy(cfg->dns_dmn_path, p, strlen(p) >= 256 ? 255 : strlen(p));
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    if (strcmp(p, "http_dmn_cfg_file") == 0) {
+        if ((p = strtok(NULL, "")) != NULL) {
+            memcpy(cfg->http_dmn_file, p, strlen(p) >= 256 ? 255 : strlen(p));
+            return SPOOFER_OK;
+        }else {
+            perror("config err\n");
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    perror("not a rigth instruction\n");
+    return SPOOFER_FAILURE;
+}
+
+
+
+/**
+ *
+ *  analysis the current line that in info block scope.
+ *
+ *  @param info, is the info block' struct.
+ *
+ *  @param line, is the current in info block.
+ *
+ *  @param delim, is the split symbols.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_analysis_info_blk(spo_cfg_ifo_blk_t *info, char *line, char *delim) {
+
+    char *p = NULL;
+    int len = 0;
+    char key[16] = {'\0'};      /* record the key */
+
+    if (info == NULL || line == NULL || delim == NULL)  return SPOOFER_FAILURE;
+
+    /* get key */
+    if ((p = strtok(line, delim)) != NULL) {
+        strcpy(key, p);
+    }else {
+        return SPOOFER_FAILURE;
+    }
+
+    if (strcmp(key, "filter") != 0) {
+        /* get value, only one value */
+        if ((p = strtok(NULL, delim)) == NULL)  return SPOOFER_FAILURE;
+    }else {
+        /* get value, only one value */
+        if ((p = strtok(NULL, "")) == NULL)  return SPOOFER_FAILURE;
+    }
+
+    len = strlen(p);
+
+    if (memcmp(key, "dev_r", strlen("dev_r")) == 0) {
+        if ((info->dev_r = spo_calloc(len + 1)) == NULL)    return SPOOFER_FAILURE;
+
+        memcpy(info->dev_r, p, len);
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "dev_s", strlen("dev_s")) == 0) {
+        if ((info->dev_s = spo_calloc(len + 1)) == NULL) return SPOOFER_FAILURE;
+
+        memcpy(info->dev_s, p, len);
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "http_msgid", strlen("http_msgid")) == 0) {
+        info->http_msgid[info->http_msgid[0]] = atoi(p);
+        info->http_msgid[0]++;
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "dns_msgid", strlen("dns_msgid")) == 0) {
+        info->dns_msgid[info->dns_msgid[0]] = atoi(p);
+        info->dns_msgid[0]++;
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "proc_type", strlen("proc_type")) == 0) {
+        strcpy(info->type, p);
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "useing_lib", strlen("useing_lib")) == 0) {
+        strcpy(info->lib, p);
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "cpuid",  strlen("cpuid")) == 0) {
+        info->cpu_id = atoi(p);
+        return SPOOFER_OK;
+    }
+
+    if (memcmp(key, "filter", strlen("filter")) == 0) {
+        if ((info->filter = spo_calloc(len + 1)) == NULL)   return SPOOFER_FAILURE;
+
+        memcpy(info->filter, p, len);
+
+        return SPOOFER_OK;
+    }
+
+    perror("not a right instruction\n");
+
+    return SPOOFER_FAILURE;
+}
+
+
+
+/**
+ *
+ *  here we analysis the config file's line.
+ *
+ *  we use the status machine method to analysis it.
+ *
+ *  @param cfg, config struct.
+ *
+ *  @param line, the current line we readed.
+ *
+ *  @param status, is the status machine's current status.
+ *
+ *  @return int, is the exec status or the next status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_analysis_config(spo_cfg_t *cfg, char *line, int status) {
+
+    if (cfg == NULL || line == NULL)    return SPOOFER_FAILURE;
+
+    /* in global */
+    if (memcmp(line, "</", 2) == 0) return SPOOFER_OUT_SCOPE;
+
+    if (status == SPOOFER_IN_INFO_SCOPE) {          /* int process info scope */
+        if (cfg->cfg_ifo_tail == NULL)  return SPOOFER_FAILURE;
+
+        /* we analysis the line in info's block */
+        if (spo_analysis_info_blk(cfg->cfg_ifo_tail, line, " ") == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+        return SPOOFER_IN_INFO_SCOPE;
+    }
+
+    if (memcmp(line, "<spo_info>", strlen("<spo_info>")) == 0) {            /* going to info block's scope */
+
+        if (status != SPOOFER_OUT_SCOPE && status != SPOOFER_CFG_START) {
+            printf("config err '<>' never match\n");
+            return SPOOFER_FAILURE;
+        }
+
+        spo_cfg_ifo_blk_t *info = spo_calloc(sizeof(spo_cfg_ifo_blk_t));
+        if (info == NULL)   return SPOOFER_FAILURE;
+
+        spo_init_cfg_info_blk(info);
+
+        if (cfg->cfg_ifo == NULL) {
+            cfg->cfg_ifo = info;
+            cfg->cfg_ifo_tail = info;
+        }else {
+            cfg->cfg_ifo_tail->next = info;
+            cfg->cfg_ifo_tail = info;
+        }
+
+        return SPOOFER_IN_INFO_SCOPE;
+    }
+
+    if (status == SPOOFER_OUT_SCOPE || status == SPOOFER_CFG_START) {
+        if (spo_analysis_global(cfg, line, " ") == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+        return SPOOFER_OUT_SCOPE;
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+/**
+ *
+ *  really to load the config file.
+ *
+ *  call spo_analysis_config() func to analysis the per line.
+ *
+ *  @param fp, is the file handler.
+ *
+ *  @param cfg, is the config struct.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_load_config(FILE *fp, spo_cfg_t *cfg) {
+
+    int i = 0;
+    char * line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    int status = SPOOFER_CFG_START;
+
+    if (cfg == NULL || fp == NULL)  return SPOOFER_FAILURE;
+
+    while ((read = getline(&line, &len, fp)) != -1) {
+        char *ch = spo_deal_with_line(line);
+
+        i++;
+
+        if (strncmp(ch, "#", 1) == 0 || strlen(ch) == 0) {   /* skip the annotate line */
+            continue;
+        }
+
+        status = spo_analysis_config(cfg, ch, status);      /* to analysis the line */
+        if (status == SPOOFER_FAILURE) {
+            printf("config err in %d line\n", i);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (line != NULL)   spo_free(line);
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  load the config file.
+ *
+ **/
+
+spo_cfg_t *spo_load_config(const char *cfg_file_path) {
+
+    FILE *fp;
+    int ret = 0;
+    spo_cfg_t *cfg = NULL;
+
+    if (cfg_file_path == NULL)  return NULL;
+
+    fp = spo_fopen(cfg_file_path, "r");
+    if (fp == NULL) {
+        perror("fopen config file err\n");
+        return NULL;
+    }
+
+    if (cfg == NULL) {
+        if ((cfg = (spo_cfg_t *) spo_calloc(sizeof(spo_cfg_t))) == NULL)    return NULL;
+        spo_init_cfg(cfg);
+    }
+
+    ret = spo_do_load_config(fp, cfg);
+
+    spo_fclose(fp);
+    if (ret == SPOOFER_FAILURE) exit(EXIT_FAILURE);
+
+    return cfg;
+}
+
+
+static SPO_RET_STATUS_INT spo_change_dns_host_form(u_char *line) {
+
+    int i = 0;
+    char j = 0;
+    int len = strlen((const char *)line) - 1;
+    u_char *ch = line + len;
+
+    if (line == NULL)   return SPOOFER_FAILURE;
+
+    for (i = len; i >= 0; i--) {
+        if (*ch == '.') {
+            *ch = j;
+            j = 0;
+            ch--;
+            continue;
+        }
+        ch--;
+        j++;
+    }
+
+    for (i = 0; i < len + 1; i++) {
+        printf("%02x ", line[i]);
+    }
+    printf("\n");
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  analysis the current line that in domain block scope.
+ *
+ *  @param info, is the domain block' struct.
+ *
+ *  @param line, is the current in domain block.
+ *
+ *  @param delim, is the split symbols.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static spo_rbt_node_t *spo_analysis_domain_blk(char *line, char *delim) {
+
+    char *p = NULL;
+    int len = 0;
+
+    spo_rbt_node_t *node = NULL;
+    spo_cfg_dmn_url_t *dmn_url = NULL;
+
+    if (line == NULL || delim == NULL)  return NULL;
+
+    if ((node = spo_calloc(sizeof(spo_rbt_node_t))) == NULL) return NULL;
+    spo_init_rbt_node(node);
+
+    if ((dmn_url = spo_calloc(sizeof(spo_cfg_dmn_url_t))) == NULL)    goto bad_domain;
+    spo_init_cfg_dmn_url(dmn_url);
+
+    /* get domain */
+
+    if ((p = strtok(line, delim)) != NULL) {
+        len = strlen(p);
+
+        dmn_url->domain.data = spo_calloc(len + 1);
+        if (dmn_url->domain.data == NULL)   goto bad_domain;
+
+        dmn_url->domain.len = len;
+
+        memcpy(dmn_url->domain.data, p, dmn_url->domain.len);
+    }else {
+        goto bad_domain;
+    }
+
+    /* get url */
+    if ((p = strtok(NULL, "")) == NULL)  {
+        dmn_url->data.data = NULL;
+        dmn_url->data.len = 0;
+        node->key = (void *)dmn_url;
+        return node;
+    }
+
+    len = strlen(p);
+
+    dmn_url->data.data = spo_calloc(len + 1);
+    if (dmn_url->data.data == NULL) goto bad_domain;
+
+    dmn_url->data.len = len;
+
+    memcpy(dmn_url->data.data, p, dmn_url->data.len);
+    dmn_url->next = NULL;
+
+    node->key = (void *)dmn_url;
+
+    return node;
+
+bad_domain:
+
+    if (dmn_url != NULL)    spo_free_dmn_url(dmn_url);
+
+    if (node != NULL)   spo_free(node);
+
+    return NULL;
+}
+
+
+/**
+ *
+ *  analysis the domain file, get the domain.
+ *
+ *  create a rbt node for per domain.
+ *
+ *  @param rbt_header, is the rbt header.
+ *
+ *  @param line, is the current line.
+ *
+ *  @param status, is the current status. we use status machine to analysis the file.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_analysis_domain_config(spo_rbt_header_t *rbt_header, char *line, int status) {
+
+
+    if (rbt_header == NULL || line == NULL) return SPOOFER_FAILURE;
+
+    if (memcmp(line, "</", 2) == 0) return SPOOFER_OUT_SCOPE;
+
+    if (status == SPOOFER_IN_DOMAIN_SCOPE) {        /* int domain scope */
+
+        spo_rbt_node_t *node = spo_analysis_domain_blk(line, " ");
+        if (node == NULL)   return SPOOFER_FAILURE;
+
+        spo_insert_rbt(rbt_header,node);
+
+        return SPOOFER_IN_DOMAIN_SCOPE;
+    }
+
+    /* going to domain block's scope */
+    if (memcmp(line, "<spo_domain>", strlen("<spo_domain>")) == 0) {
+
+        if (status != SPOOFER_OUT_SCOPE && status != SPOOFER_CFG_START) {
+            printf("config err '<>' never match\n");
+            return SPOOFER_FAILURE;
+        }
+
+        return SPOOFER_IN_DOMAIN_SCOPE;
+    }
+
+    if (status == SPOOFER_OUT_SCOPE || status == SPOOFER_CFG_START) return SPOOFER_OUT_SCOPE;
+
+    return SPOOFER_FAILURE;
+}
+
+
+/**
+ *
+ *  load the domain in file.
+ *
+ *  @param fp, is the file pointer.
+ *
+ *  @param rbt_header, the rbt header.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_load_domain(FILE *fp, spo_rbt_header_t *rbt_header) {
+
+    int i = 0;
+    char * line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    if (fp == NULL || rbt_header == NULL)   return SPOOFER_FAILURE;
+
+    int status = SPOOFER_CFG_START;
+
+    while ((read = getline(&line, &len, fp)) != -1) {
+        char *ch = spo_deal_with_line(line);
+
+        i++;
+
+        if (strncmp(ch, "#", 1) == 0 || strlen(ch) == 0) {   /* skip the annotate line */
+            continue;
+        }
+
+        status = spo_analysis_domain_config(rbt_header, ch, status);      /* to analysis the line */
+        if (status == SPOOFER_FAILURE) {
+            printf("config err in %d line\n", i);
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  load the http domain file.
+ *
+ *  @param domain_file_path, is the domain path and name.
+ *
+ *  @return spo_rbt_header_t, is the rbt header.
+ *
+ **/
+
+spo_rbt_header_t *spo_load_domain_cfg(const char *domain_file_path) {
+
+    FILE *fp;
+    int ret = 0;
+    spo_rbt_header_t * rbt_header = NULL;
+
+    if (domain_file_path == NULL)   return NULL;
+
+    fp = spo_fopen(domain_file_path, "r");
+    if (fp == NULL) {
+        perror("fopen domain config file err\n");
+        return NULL;
+    }
+
+    rbt_header = (spo_rbt_header_t *) spo_calloc(sizeof(spo_rbt_header_t));
+    if (rbt_header == NULL) return NULL;
+
+    spo_init_rbt_header(rbt_header);
+
+    ret = spo_do_load_domain(fp, rbt_header);
+
+    if (ret == SPOOFER_FAILURE) {
+        spo_destory_rbt_header(rbt_header, spo_free_dmn_url);
+        return NULL;
+    }
+
+    spo_fclose(fp);
+    return rbt_header;
+}
+
+
+/**
+ *
+ *  here update domain cfg, rebuild the rbt.
+ *
+ *  @param arg, is the domain cfg path.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_update_http_dmn_cfg(void *arg, spo_dmn_t *http_dmn) {
+
+    spo_rbt_header_t *rbt_header = NULL;
+
+    if (arg == NULL || http_dmn == NULL) return SPOOFER_FAILURE;
+
+    const char *file_path = (const char *) arg;
+
+    if ((rbt_header = spo_load_domain_cfg(file_path)) == NULL)  return SPOOFER_FAILURE;
+
+    if (http_dmn->rbt_header != NULL) {
+        spo_destory_rbt_header(http_dmn->rbt_header, spo_free_dmn_url);
+    }
+
+    http_dmn->rbt_header = rbt_header;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  when catched the sigusr1, we call this func.
+ *
+ *  @param cfg_path, is the domain cfg file path.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_update_http_dmn_cfg(const char *cfg_path, spo_dmn_t *http_dmn) {
+
+    int ret = 0;
+
+    if (cfg_path == NULL || http_dmn == NULL)   return SPOOFER_FAILURE;
+
+    ret = spo_do_update_http_dmn_cfg((void *)cfg_path, http_dmn);
+
+    if (ret == SPOOFER_FAILURE) {
+        printf("update dmn cfg err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+SPO_RET_STATUS_INT spo_do_timeto_update_http_domain(const char *file_name) {
+
+    int ret = 0;
+
+    if (file_name == NULL) return SPOOFER_FAILURE;
+
+    ret = spo_update_http_dmn_cfg(file_name, spo_http_dmn);
+    if (ret == SPOOFER_FAILURE) perror("update domain config err\n");
+
+    spo_pre_order(&spo_http_dmn->rbt_header->rbt_node_header->link, visit);
+    printf("\n\n\n");
+
+    return ret;
+}
+
+
+/**
+ *
+ *  here update the http domain file, when it was change.
+ *
+ *  @param sig, is the sigusr1 when we catched, we go to update domain.
+ *
+ *  @param siginfo, use for sigaction func.
+ *
+ *  @param p, use for sigaction func.
+ *
+ *  @return is the exec status.
+ *
+ **/
+
+void spo_timeto_update_http_domain(int sig, siginfo_t *siginfo, void *p) {
+
+    siginfo = siginfo;
+    p = p;
+
+    if (sig == SIGUSR1) http_dmn_safe = SPO_DMN_SAFE;
+
+    return;
+}
+
+
+spo_rbt_header_t *spo_create_rbt_header() {
+
+    spo_rbt_header_t *header = (spo_rbt_header_t *)spo_calloc(sizeof(spo_rbt_header_t));
+    if (header == NULL) return NULL;
+
+    spo_init_rbt_header(header);
+
+    return header;
+}
+
+spo_rbt_node_t *spo_create_rbt_node() {
+
+    spo_rbt_node_t *node = (spo_rbt_node_t *) spo_calloc(sizeof(spo_rbt_node_t));
+    if (node == NULL)   return NULL;
+
+    spo_init_rbt_node(node);
+
+    return node;
+}
+
+
+static SPO_RET_BOOLEN_INT spo_legaled_dns_cfg_file_name(struct dirent *dp, const char *dmn_path, char *file_name) {
+
+    struct stat info;
+    int info_s = sizeof(struct stat);
+
+    if (dp == NULL || dmn_path == NULL) return SPOOFER_FALSE;
+
+    memset(&info, 0, info_s);
+    memset(file_name, '\0', SPOOFER_MAX_FILE_NAME_LEN);
+
+    /*get the file name*/
+    sprintf(file_name, "%s/%s", dmn_path, dp->d_name);
+    printf("file name %s\n", file_name);
+    stat(file_name, &info);
+
+    /*must be regulation file*/
+    if (S_ISREG(info.st_mode))  return SPOOFER_TRUE;
+
+    return SPOOFER_FALSE;
+}
+
+
+
+static spo_rbt_node_t *spo_do_load_dns_domain(const char *file_name, const char *dmn) {
+
+    int ret = 0;
+
+    size_t file_s = 0;
+    spo_rbt_node_t *node = NULL;
+    spo_cfg_dmn_url_t *dmn_url = NULL;
+
+    if (file_name == NULL || dmn == NULL)   return NULL;
+
+    if ((node = spo_create_rbt_node()) == NULL) goto spo_bad_load;
+
+    node->key = (void *) spo_calloc(sizeof(spo_cfg_dmn_url_t));
+    if (node->key == NULL)  goto spo_bad_load;
+
+    dmn_url = (spo_cfg_dmn_url_t *) node->key;
+
+    /* get domain */
+    if ((dmn_url->domain.data = (u_char *) spo_calloc(strlen(dmn) + 1)) == NULL)    goto spo_bad_load;
+
+    dmn_url->domain.len = strlen(dmn);
+    memcpy(dmn_url->domain.data, dmn, dmn_url->domain.len);
+
+    spo_change_dns_host_form(dmn_url->domain.data);
+
+    /* get the data in file */
+
+    if ((file_s = spo_file_size(file_name)) <= 0)   goto spo_bad_load;
+
+    if ((dmn_url->data.data = (u_char *)spo_calloc(file_s + 1)) == NULL)    goto spo_bad_load;
+
+    ret = spo_read_file_data(file_name, dmn_url->data.data, file_s + 1);
+
+    if (ret == SPOOFER_FAILURE) goto spo_bad_load;
+
+    dmn_url->data.len = ret;
+
+    return node;
+
+spo_bad_load:
+
+    if (node->key != NULL) {
+        spo_free_dmn_url(node->key);
+        node->key = NULL;
+    }
+
+    if (node != NULL)   spo_free(node);
+
+    return NULL;
+}
+
+
+
+spo_rbt_header_t *spo_load_dns_domain(const char *dmn_path) {
+
+    DIR *dirp;
+    struct dirent *dp;
+    char file_name[SPOOFER_MAX_FILE_NAME_LEN];
+
+    if (dmn_path == NULL)   return NULL;
+
+    dirp = opendir(dmn_path);
+    if (dirp == NULL)   return NULL;
+
+    spo_rbt_header_t *header = spo_create_rbt_header();
+    if (header == NULL) return NULL;
+
+    while ((dp = readdir(dirp)) != NULL) {
+
+        /*"." or ".." not we want.*/
+        if (strncmp(dp->d_name, ".", 1) == 0 || dp->d_name[strlen(dp->d_name) - 1] == '~') {
+            continue;
+        }
+
+        if (spo_legaled_dns_cfg_file_name(dp, dmn_path, file_name) == SPOOFER_TRUE) {
+            spo_rbt_node_t *node = spo_do_load_dns_domain(file_name, dp->d_name);
+            if (node == NULL)   continue;
+
+            spo_insert_rbt(header, node);
+        }
+    }
+
+    closedir(dirp);
+
+    if (header->rbt_node_header == NULL)    return NULL;
+
+    return header;
+}
+
+/**
+ *
+ *  call the func to update the dns domain.
+ *
+ *  @param cfg_path, is the dns domain dir path.
+ *
+ *  @param dns_dmn, is the dns_dmn struct.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_update_dns_domain(const char *cfg_path, spo_dmn_t *dns_dmn) {
+
+    spo_rbt_header_t *header = NULL;
+
+    if (cfg_path == NULL || dns_dmn == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    header = spo_load_dns_domain(cfg_path);
+
+    if (header == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (dns_dmn->rbt_header != NULL) {
+        spo_destory_rbt_header(dns_dmn->rbt_header, spo_free_dmn_url);
+    }
+
+    dns_dmn->rbt_header = header;
+
+    return SPOOFER_OK;
+}
+
+
+SPO_RET_STATUS_INT spo_do_timeto_update_dns_domain(const char * path) {
+
+    int ret = spo_update_dns_domain(path, spo_dns_dmn);
+    if (ret == SPOOFER_FAILURE) printf("update dns domain err\n");
+
+    spo_pre_order(&spo_dns_dmn->rbt_header->rbt_node_header->link, visit);
+    printf("\n\n\n");
+
+    return ret;
+}
+
+
+
+/**
+ *
+ *  time to go to update the dns domain.
+ *
+ **/
+
+void spo_timeto_update_dns_domain(int sig, siginfo_t *siginfo, void *p) {
+
+    siginfo = siginfo;
+    p = p;
+
+    if (sig == SIGUSR1) dns_dmn_safe = SPO_DMN_SAFE;
+
+    return;
+}
+

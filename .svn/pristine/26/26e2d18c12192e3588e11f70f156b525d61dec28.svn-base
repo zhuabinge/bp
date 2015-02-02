@@ -1,0 +1,184 @@
+<div class="row" style="margin-bottom:40px;">
+  <div class="box col-md-12">
+    <div class="row">
+      <div class="col-sm-2">
+        <div class="box-content box-statistic text-right">
+          <h4 class="title text-error">{$result['serialnum']}</h4>
+          <small>序列号</small>
+          <div class="text-error icon-bookmark-empty align-left"></div>
+        </div>
+      </div>
+      <div class="col-sm-2">
+        <div class="box-content box-statistic text-right">
+          <h4 class="title text-success">{$result['hostname']}</h4>
+          <small>主机名称</small>
+          <div class="text-success icon-user align-left"></div>
+        </div>
+      </div>
+      <div class="col-sm-2">
+        <div class="box-content box-statistic text-right">
+          <h4 class="title text-primary">{$result['hardware']}</h4>
+          <small>硬件平台</small>
+          <div class="text-primary icon-wrench align-left"></div>
+        </div>
+      </div>
+      <div class="col-sm-3">
+        <div class="box-content box-statistic text-right">
+          <h4 class="title text-info">{$result['systime']|date_format:"%Y-%m-%d %H:%M:%S"}</h4>
+          <small>系统时间</small>
+          <div class="text-info icon-time align-left"></div>
+        </div>
+      </div>
+      <div class="col-sm-2">
+        <div class="box-content box-statistic text-right">
+          <h4 class="title text-warning">{$result['version']}</h4>
+          <small>软件版本</small>
+          <div class="text-warning icon-bookmark-empty align-left"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="group-header">
+  <div class="row">
+    <div class="col-sm-6 col-sm-offset-3">
+      <div class="text-center">
+        <h2>CPU和内存使用情况</h2>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col-sm-6">
+    <div id="chartArea" style="height:400px;display:block;"></div>
+  </div>
+  <div class="col-sm-6">
+    <div id="chartArea2" style="height:400px;display:block;"></div>
+  </div>
+</div>
+
+<script type="text/javascript">
+//配置路径
+require.config({
+  paths: {
+    echarts: '{$tpldir}/echarts/build/dist'
+  }
+});
+//使用
+require(
+  [
+  'echarts',
+  'echarts/chart/line',
+  'echarts/chart/bar',
+  'echarts/chart/gauge'
+  ],
+  function(ec) {
+    var myChart = ec.init(document.getElementById('chartArea'));
+    var myChart2 = ec.init(document.getElementById('chartArea2'));
+    var cpuSet = [];
+    var memSet = [];
+    var timeSet = [];
+    {foreach $result2 as $result}
+    cpuSet.push({$result['CPU']});
+    memSet.push({$result['Mem']});
+
+    var date = new Date(parseInt({$result['time']}) * 1000).toLocaleString().substr(0,20);
+    timeSet.push(date);
+    {/foreach}
+    console.log(cpuSet);
+    option = {
+      tooltip: {
+        trigger: 'axis'
+      },
+      legend: {
+        data: ['CPU']
+      },
+      toolbox: {
+        show: true,
+        feature: {
+          dataView: {
+            show: true,
+            readOnly: false
+          },
+          magicType: {
+            show: true,
+            type: ['line', 'bar']
+          },
+          restore: {
+            show: true
+          },
+          saveAsImage: {
+            show: true
+          }
+        }
+      },
+      calculable: true,
+      series: [{
+        name: 'CPU',
+        type: 'gauge',
+        smooth:true,
+        detail : { {literal} formatter:'{value}%' {/literal}},
+        data: cpuSet,
+      }]
+    };
+    option2 = {
+      tooltip: {
+        trigger: 'axis'
+      },
+      legend: {
+        data: ['内存']
+      },
+      toolbox: {
+        show: true,
+        feature: {
+          dataView: {
+            show: true,
+            readOnly: false
+          },
+          magicType: {
+            show: true,
+            type: ['line', 'bar']
+          },
+          restore: {
+            show: true
+          },
+          saveAsImage: {
+            show: true
+          }
+        }
+      },
+      calculable: true,
+      series: [{
+        name: '内存',
+        type: 'gauge',
+        smooth:true,
+        detail : { {literal} formatter:'{value}%' {/literal}},
+        data: memSet,
+      }]
+    };
+    myChart.setOption(option);
+    myChart2.setOption(option2);
+  }
+  );
+
+</script>
+
+<script type="text/javascript">
+var timer;
+if (timer) {
+  clearTimeout(timer);
+}
+function getPage() {
+  $.ajax({
+    url: 'home/getHomeView',
+    type: 'POST',
+    sync: false,
+    data: {},
+    datatype: 'json',
+    success: function(data){
+      $('#tabData').html(data);
+    }
+  });
+}
+timer = setTimeout("getPage()", 1000 * 5);
+</script>

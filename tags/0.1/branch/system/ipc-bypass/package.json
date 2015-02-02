@@ -1,0 +1,12 @@
+{
+  "name": "node-msgget",
+  "main": "index.js",
+  "devDependencies": {
+    "node-ftok": "*",
+    "mocha"    : "*",
+    "expect.js": "*",
+    "node-buffy": "*",
+    "ref": "*",
+    "ref-struct": "*"
+  }
+}

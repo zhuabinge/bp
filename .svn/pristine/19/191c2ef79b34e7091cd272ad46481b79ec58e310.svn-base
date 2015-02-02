@@ -1,0 +1,34 @@
+{
+  "name": "optimal",
+  "version": "0.0.3",
+  "description": "Kickass JS arguments parser",
+  "directories": {
+    "test": "test"
+  },
+  "devDependencies": {
+    "mocha": ">= 0.0.0",
+    "should": ">= 0.0.0"
+  },
+  "scripts": {
+    "test": "mocha -R spec -r should test/optimal.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/Numbee/Optimal.git"
+  },
+  "author": {
+    "name": "stoke",
+    "email": "stoke@autistici.org"
+  },
+  "license": "MIT",
+  "readme": "Optimal\n=======\n\n![travis](https://secure.travis-ci.org/Numbee/Optimal.png?branch=master)\n\n### Documentation\n\nCheck ```example/```\n\n### Install\n\n`npm install optimal`",
+  "readmeFilename": "README.md",
+  "bugs": {
+    "url": "https://github.com/Numbee/Optimal/issues"
+  },
+  "homepage": "https://github.com/Numbee/Optimal",
+  "_id": "optimal@0.0.3",
+  "_shasum": "4e98fee036ad6b8ef6b009137efbde8734a7ba67",
+  "_resolved": "git://github.com/coderz/optimal.git#cc2e5f40b700a8f28697c90966b552dd17174746",
+  "_from": "optimal@git://github.com/coderz/optimal.git"
+}

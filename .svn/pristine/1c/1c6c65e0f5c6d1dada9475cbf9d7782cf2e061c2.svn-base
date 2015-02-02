@@ -1,0 +1,945 @@
+#include <pcap/pcap.h>
+#include <pcap.h>
+#include <time.h>
+#include <pfring.h>
+
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_sniffer.h"
+#include "../spoofer_ipcs/spoofer_ipcs.h"
+#include "../spoofer_kernel/spoofer_kernel.h"
+#include "../spoofer_mem_pool/mem_pool.h"
+#include "../spoofer_file/spoofer_file.h"
+#include "../spoofer_config/spoofer_config.h"
+
+
+#define SPOOFER_CATCHED_PACKET_LEN (65535)
+#define SPOOFER_MSQID_DS_SIZE (int)sizeof(struct msqid_ds)
+
+
+/* the filed amount of line is 3 for http 1/1, mothed, url and http vision */
+#define SPOOFER_HTTP_LINE_FIELD_AMOUNT (3)
+#define SPOOFER_HTTP_HEADER_FIELD_AMOUNT (1)    /* we just need host in header */
+
+#define SPOOFER_HTTP_DOMAIN_LEN (128)
+
+#define SPOOFER_HOST_STR_LEN	((strlen("host")) +2)
+#define SPOOFER_HOST_VAR_LEN	(6)
+
+#define LF     (u_char) '\n'    /* 0x0a */
+#define CR     (u_char) '\r'    /* 0x0d */
+#define CRLF   "\r\n"
+
+ulong counter = 0;            /* the counter for rr */
+
+struct msqid_ds spo_msg_info;   /* use to save the msg queue info */
+
+
+/**
+ *
+ *  the packet is in 802.3 -1q vlan ?
+ *
+ *  @param packet, the packet we catch.
+ *
+ *  @return the judgment result.
+ *
+ *  status finished, tested.
+ *
+ *  ok
+ *
+ **/
+
+inline SPO_RET_BOOLEN_INT spo_is_802_1q_vlan(const u_char *packet) {
+
+    spo_sniff_ether_t *eth = (spo_sniff_ether_t *) packet;
+
+    if (ntohs(eth->ether_type) == 0x8100)   return SPOOFER_TRUE;
+
+    return SPOOFER_FALSE;
+}
+
+
+
+/**
+ *
+ *  when we catch the http packet, we get the http packets's size in here.
+ *
+ *  @param packet, is the http packet we catched.
+ *
+ *  @return size, is the packet total size.
+ *
+ **/
+
+inline size_t spo_http_packet_size(const u_char *packet) {
+
+    size_t packet_size = 0;
+
+    if (unlikely(packet == NULL))   return SPOOFER_FAILURE;
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {   /* is running vlan env */
+
+        spo_sniff_ip_t *ip =  (spo_sniff_ip_t *) (packet + SPOOFER_IP_OFFSET_VLAN);
+
+        /* packet size eq ip len + vlan header len + eth header len */
+        packet_size = ntohs(ip->ip_len) + SPOOFER_IP_OFFSET_VLAN;
+
+        return packet_size;
+
+    }else {
+
+        spo_sniff_ip_t *ip =  (spo_sniff_ip_t *) (packet + LIBNET_ETH_H);
+
+        packet_size = ntohs(ip->ip_len) + LIBNET_ETH_H;
+
+        return packet_size;
+
+    }
+}
+
+
+/**
+ *
+ *  get the http packet's tcp level options's length.
+ *
+ *  the option length < 40 byte.
+ *
+ *  @param packet, is the http request packet we catched.
+ *
+ *  @return op_len, is the options's length.
+ *
+ *  ok
+ *
+ **/
+
+static short spo_get_tcp_options_len(const u_char *packet) {
+
+    short op_len = -1;
+    spo_sniff_tcp_t *tcp = NULL;
+
+    if (unlikely(packet == NULL))   return SPOOFER_FAILURE;
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {
+        tcp = (spo_sniff_tcp_t *) (packet + SPOOFER_TCP_OFFSET_VLAN);
+    }else {
+        tcp = (spo_sniff_tcp_t *) (packet + SPOOFER_TCP_OFFSET);
+    }
+
+    op_len = (short) ((short)(tcp->tcp_offx2 >> 2) - LIBNET_TCP_H);
+
+    return op_len;
+}
+
+
+
+/**
+ *
+ *  get the http request packet start pointer.
+ *
+ *  @param packet, is the http request packet we catched.
+ *
+ *  @return http_start, is the http start pointer.
+ *
+ *  ok
+ *
+ **/
+
+static const u_char *spo_http_start(const u_char *packet) {
+
+    u_char *http_start = NULL;
+
+    if (unlikely(packet == NULL))   return NULL;
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {
+        http_start = (u_char *) (packet + SPOOFER_TCP_OFFSET_VLAN
+                                 + LIBNET_TCP_H + spo_get_tcp_options_len(packet));
+    }else {
+        http_start = (u_char *) (packet + SPOOFER_TCP_OFFSET
+                                 + LIBNET_TCP_H + spo_get_tcp_options_len(packet));
+    }
+
+    if ((long)spo_http_packet_size(packet) == (http_start - packet)) return NULL;
+
+    return http_start;
+}
+
+
+/**
+ *
+ *  get the http request packet method.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @param method, used to save the method name and name's len.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_http_request_method(const u_char *http_start, spo_str_t *mtd, int mtd_off) {
+
+    u_char *ch = NULL;
+
+    if (unlikely(mtd == NULL)) {
+        mtd->data = NULL;
+        mtd->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    if (unlikely(http_start == NULL)) {
+        mtd->data = NULL;
+        mtd->len = 0;
+        return SPOOFER_OK;
+    }
+
+    ch = (u_char *) (((u_char *)http_start) + mtd_off);
+
+    if (*ch == CR || *ch == LF) {
+        mtd->data = NULL;
+        mtd->len = 0;
+        return SPOOFER_OK;
+    }
+
+    while (*ch == 0x20) {    //skip the ' ', hex is 0x20
+        ch++;
+    }
+
+    mtd->data = ch;
+
+    while (*ch != 0x20) {
+        ch++;
+    }
+
+    if ((mtd->len = (size_t)(ch - mtd->data)) == 0) {
+        mtd->data = NULL;
+        mtd->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  get the http request url.
+ *
+ *  and save the url at param url
+ *
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_http_request_url(const u_char *http_start, spo_str_t *url, int url_off, size_t pkt_s) {
+
+    u_char *ch = NULL;
+    size_t i = 0;
+
+    if (unlikely(url == NULL))  return SPOOFER_FAILURE;
+
+    if (unlikely(http_start == NULL)) {
+        url->data = NULL;
+        url->len = 0;
+        return SPOOFER_OK;
+    }
+
+    ch = (u_char *) (((u_char *) http_start) + url_off);
+
+    url->data = ch;
+
+    for (i = 0; i < pkt_s; i++) {
+        if (*ch == 0x20)    break;
+        ch++;
+    }
+
+    if (i >= pkt_s) {
+        url->data = NULL;
+        url->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    if ((url->len = (size_t) (ch - url->data)) == 0) {
+        url->data = NULL;
+        url->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+
+}
+
+
+/**
+ *
+ *  analysis the http version
+ *
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_http_version(const u_char *http_start, spo_str_t *version, int url_off, size_t pkt_s) {
+
+    u_char *ch = NULL;
+    size_t i = 0;
+
+    if (unlikely(version == NULL))  return SPOOFER_FAILURE;
+
+    if (unlikely(http_start == NULL)) {
+        version->data = NULL;
+        version->len = 0;
+        return SPOOFER_OK;
+    }
+
+    ch = (u_char *) (((u_char *) http_start) + url_off);
+
+    version->data = ch;
+
+    for (i = 0; i < pkt_s; i++) {
+        if (*ch == CR && *(ch + 1) == LF)   break;
+        ch++;
+    }
+
+    ;
+    if ((version->len = (size_t) (ch - version->data)) == 0) {
+        version->data = NULL;
+        version->len = 0;
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+
+}
+
+
+/**
+ *
+ *  analysis the http request header.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_analysis_http_header(
+        const u_char *http_start, spo_str_t *head_info, int head_off, size_t pkt_s) {
+
+    size_t i = 0;
+    u_char *field = NULL;
+
+    if (unlikely(http_start == NULL))   return SPOOFER_FAILURE;
+
+    if (head_info == NULL)  return SPOOFER_FAILURE;
+
+    u_char *ch = (u_char *) ((u_char *) http_start + head_off);
+
+    field = ch;
+
+    for (i = 0; i < pkt_s; i++) {
+        if (*ch == CR && *(ch + 1) == LF) {
+
+            if (memcmp(field, "Host", strlen("Host")) == 0) {   /* found the Host */
+                head_info[0].data = field + SPOOFER_HOST_VAR_LEN;      /* record the key and value */
+                head_info[0].len =  (size_t) (ch - head_info[0].data);
+                break;
+			}
+
+            ch = ch + 2;    /* skip '\r\n' */
+
+            if (*ch == CR && *(ch + 1) == LF)   break;      /* end hhttp request packet. */
+
+            field = ch;
+            continue;
+        }
+        ch++;
+    }
+
+    if (i >= pkt_s)  return SPOOFER_FAILURE;
+
+    return SPOOFER_OK;
+}
+
+
+
+
+
+
+/**
+ *
+ *  analysis the packets we catched.
+ *
+ * */
+
+static SPO_RET_STATUS_INT spo_analysis_http_line(const u_char *http_start, spo_str_t *line, size_t pkt_s) {
+
+    int offset = -1;
+    int ret = -1;
+
+    if (unlikely(line == NULL)) return SPOOFER_FAILURE;
+
+    /* get the request method */
+
+    if (http_start == NULL) {
+        goto bad_analysis;
+    }else {
+        ret = spo_http_request_method(http_start, &line[0], 0);
+
+        if (ret == SPOOFER_FAILURE) goto bad_analysis;
+
+        if (!(line[0].len == 3 && memcmp(line[0].data, "GET", 3) == 0)) goto bad_analysis;
+    }
+
+    /* get the request url */
+
+    if (line[0].len == 0 || line[0].data == NULL) {
+        goto bad_analysis;
+    }else {
+        offset = line[0].len + 1;   /* add 1 is skip the ' '(0x20) */
+
+        ret = spo_http_request_url(http_start, &line[1], offset, pkt_s);
+
+        if (ret == SPOOFER_FAILURE) goto bad_analysis;
+    }
+
+    /* get the http version */
+    if (line[1].len == 0 || line[1].data == NULL) {
+        goto bad_analysis;
+    }else {
+        offset = offset + line[1].len + 1;
+
+        ret = spo_http_version(http_start, &line[2], offset, pkt_s);
+        if (ret == SPOOFER_FAILURE) goto bad_analysis;
+    }
+
+    if (line[2].len == 0 || line[2].data == NULL)   goto bad_analysis;
+
+    return SPOOFER_OK;
+
+bad_analysis:
+
+    return SPOOFER_FAILURE;
+}
+
+
+/**
+ *
+ *  when we catched a packet packet, we analysis it.
+ *
+ *  if this packet is we need, we get it's info that we need and save the info at hjk_info.
+ *
+ *  after save the info, we send the hjk_info to msg queue.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @return exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_analysis_http_packet(const u_char *packet, spo_str_t *info[]) {
+
+    int i = 0;
+    size_t pkt_s = 0;
+    int header_offset = 0;
+
+    spo_str_t *line = NULL;
+    spo_str_t *header_info = NULL;
+    const u_char *http_start = NULL;
+
+    if (unlikely(packet == NULL))   return SPOOFER_FAILURE;
+
+    /* if the packet is tcp hand shark packet, we just return */
+    if ((http_start = spo_http_start(packet)) == NULL) return SPOOFER_FAILURE;
+
+    line = spo_calloc(sizeof(spo_str_t) * SPOOFER_HTTP_LINE_FIELD_AMOUNT);
+    if (line == NULL)   return SPOOFER_FAILURE;
+
+    /* set the data to null, and the len is 0 */
+    spo_init_string(line, SPOOFER_HTTP_LINE_FIELD_AMOUNT);
+
+    header_info = spo_alloc(sizeof(spo_str_t) * SPOOFER_HTTP_HEADER_FIELD_AMOUNT);
+    if (header_info == NULL) {
+        spo_free(line);
+        return SPOOFER_FAILURE;
+    }
+
+    spo_init_string(header_info, SPOOFER_HTTP_HEADER_FIELD_AMOUNT);
+
+	info[0] = line;
+	info[1] = header_info;
+
+    pkt_s = spo_http_packet_size(packet);
+
+    if (spo_analysis_http_line(http_start, line, pkt_s) == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+    for (i = 0; i < SPOOFER_HTTP_LINE_FIELD_AMOUNT; i++) {
+        header_offset = header_offset + line[i].len;
+    }
+
+    header_offset = header_offset + 4; /* skip tow 0x20 (space) and the '\r\n' in the end */
+
+    return spo_analysis_http_header(http_start, header_info, header_offset, pkt_s);
+}
+
+
+/**
+ *
+ *  get the msg queue status.
+ *
+ *  if more than 3 packets in msg queue, we discard the current packet.
+ *
+ *  @param msgid, is the msg queue id.
+ *
+ *  @return the queue status.
+ *
+ **/
+
+static inline SPO_RET_STATUS_INT spo_msg_queue_stat(int msgid) {
+
+    int ret = msgctl(msgid, IPC_STAT, &spo_msg_info);
+
+    if (ret == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+    if (spo_msg_info.msg_qnum > 4) {
+        memset(&spo_msg_info, 0, SPOOFER_MSQID_DS_SIZE);
+        return SPOOFER_FAILURE;
+    }
+
+    memset(&spo_msg_info, 0, SPOOFER_MSQID_DS_SIZE);
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  send the msg.
+ *
+ *  @param msgid, msg queue id.
+ *
+ *  @param packet, the packet we catched.
+ *
+ *  @param node, this process node.
+ *
+ *  @param packet_size, is the packet size.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_send_http_msg(
+        int msgid, const u_char *packet, spo_proc_node_t *node, size_t packet_size) {
+
+    int ret = -1;
+
+    size_t max_http_packet_size = (size_t) ((spo_cfg_t *) node->cfg)->max_http_packet_size;
+
+    /* if the msg queue is not ok, we return */
+    if (spo_msg_queue_stat(msgid) == SPOOFER_FAILURE)   return SPOOFER_FAILURE;
+
+    memset(node->packet->msg, '\0', max_http_packet_size);
+
+    node->packet->msg->type = SPOOFER_HTTP_PACKET_MSG_TYPE;
+
+    memcpy(node->packet->msg->data, packet, packet_size);
+
+    ret = spo_msgsnd(msgid, node->packet->msg,SPOOFER_MAX_PACKET_SIZE, IPC_NOWAIT);
+    if (ret == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+    return SPOOFER_OK;
+}
+
+
+
+/**
+ *
+ *  when we was catched a packet, we call backe here.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_http_sniffer_callback(const u_char *packet, int msgid) {
+
+    int i = 0;
+    size_t packet_size = 0;
+
+    spo_proc_node_t *node = &proc_queue_header->sniffer[proc_idx];
+    spo_str_t *info[2];
+
+    for (i = 0; i < 2; i++)
+        info[i] = NULL;
+
+    if ((packet_size = spo_http_packet_size(packet)) > SPOOFER_MAX_PACKET_SIZE) goto bad_call;
+
+    if (spo_analysis_http_packet(packet, info) == SPOOFER_FAILURE)  goto bad_call;
+
+    if (++counter > 252)  counter = 0;
+
+    spo_str_t *host = info[1];
+    if (host == NULL)   goto bad_call;
+
+    if (spo_domain_match(spo_http_dmn->rbt_header, host) == NULL)   goto bad_call;
+	
+	printf("get ---------------------\n");
+
+    if (spo_send_http_msg(msgid, packet, node, packet_size) == SPOOFER_FAILURE)  goto bad_call;
+
+    for (i = 0; i < 2; i++) {
+        if (info[i] != NULL) {
+            spo_free(info[i]);
+        }
+    }
+
+    return SPOOFER_OK;
+
+bad_call:
+
+    for (i = 0; i < 2; i++) {
+        if (info[i] != NULL) {
+            spo_free(info[i]);
+        }
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+
+/**
+ *
+ *  get the packet protocol, we need http or dns.
+ *
+ *  @param packet, is the packet we catched.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_protocol_type(const u_char *packet) {
+
+    spo_sniff_ip_t *ip = NULL;
+    spo_sniff_tcp_t *tcp = NULL;
+    spo_sniff_udp_t *udp = NULL;
+
+    if (unlikely(packet == NULL))   return SPOOFER_FAILURE;
+
+    if (spo_is_802_1q_vlan(packet) == SPOOFER_TRUE) {       /* running in vlan */
+        ip = (spo_sniff_ip_t *) (packet + SPOOFER_IP_OFFSET_VLAN);
+        if (ip->ip_p == IPPROTO_TCP) {
+            tcp = (spo_sniff_tcp_t *) (packet + SPOOFER_TCP_OFFSET_VLAN);
+            if (tcp->tcp_dport == 0x5000) {
+                return IPPROTO_TCP;          /* is http */
+            }
+
+            return SPOOFER_FAILURE;
+        }
+
+        if (ip->ip_p == IPPROTO_UDP) {
+            udp = (spo_sniff_udp_t *) (packet + SPOOFER_UDP_OFFSET_VLAN);
+            if (udp->udp_dport == 0x3500) {
+                return IPPROTO_UDP;         /* is dns */
+            }
+
+            return SPOOFER_FAILURE;
+        }
+    }else {
+        ip = (spo_sniff_ip_t *) (packet + SPOOFER_IP_OFFSET);
+
+        if (ip->ip_p == IPPROTO_TCP) {
+            tcp = (spo_sniff_tcp_t *) (packet + SPOOFER_TCP_OFFSET);
+            if (tcp->tcp_dport == 0x5000) {
+                return IPPROTO_TCP;          /* is http */
+            }
+
+            return SPOOFER_FAILURE;
+        }
+
+        if (ip->ip_p == IPPROTO_UDP) {
+            udp = (spo_sniff_udp_t *) (packet + SPOOFER_UDP_OFFSET);
+            if (udp->udp_dport == 0x3500) {
+                return IPPROTO_UDP;         /* is dns */
+            }
+
+            return SPOOFER_FAILURE;
+        }
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+/**
+ *
+ *  send the packet to spoofer by msg queue.
+ *
+ *  @param packet, is the dns packet we catched.
+ *
+ *  @param msgid , is the dns msg queue id.
+ *
+ *  @return int, is the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_dns_sniffer_callback(const u_char *packet, int msgid) {
+
+    int ret = 0;
+    spo_dns_packet_msg_t dns_msg;
+
+    if (unlikely(packet == NULL || msgid < 0))  return SPOOFER_FAILURE;
+
+    memset(&dns_msg, '\0', sizeof(spo_dns_packet_msg_t));
+    dns_msg.msg_type = SPOOFER_DNS_PACKET_MSG_TYPE;
+
+    memcpy(dns_msg.packet_info, packet, spo_http_packet_size(packet));
+
+    ret = spo_msgsnd(msgid, &dns_msg, SPOOFER_DNS_PACKET_MSG_SIZE, IPC_NOWAIT);
+    if (ret == SPOOFER_FAILURE) return SPOOFER_FAILURE;
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  when we catch a packet we callback here.
+ *
+ *
+ **/
+
+static void spo_http_sniffer_callback_pcap(u_char *user, const struct pcap_pkthdr *pcap_head, const u_char *packet) {
+
+    int ret = 0;
+
+    if (unlikely(packet == NULL))   return;
+
+    user = user;
+    pcap_head = pcap_head;
+
+    ret = spo_protocol_type(packet);
+    if (ret == SPOOFER_FAILURE) {
+        goto spo_update_pcap;
+    }else {
+        if (ret == IPPROTO_TCP) {
+            /*  running rr */
+            int rr = counter % (proc_queue_header->sniffer[proc_idx].http_msgid[0] - 1);
+            int http_msgid = proc_queue_header->sniffer[proc_idx].http_msgid[rr + 1];
+            spo_do_http_sniffer_callback(packet, http_msgid);
+        }else {
+            if (IPPROTO_UDP) {
+                //printf("dns\n");
+                int rr = counter % (proc_queue_header->sniffer[proc_idx].dns_msgid[0] - 1);
+                int dns_msgid = proc_queue_header->sniffer[proc_idx].dns_msgid[rr + 1];
+                spo_do_dns_sniffer_callback(packet, dns_msgid);
+            }
+        }/* end if IPPROTO_TCP */
+    }/* end else */
+
+
+spo_update_pcap:
+
+    if (http_dmn_safe == SPO_DMN_SAFE) {
+        spo_do_timeto_update_http_domain((const char *) spo_cfg->http_dmn_file);
+        http_dmn_safe = 0;
+        return;
+    }
+
+    return;
+}
+
+
+/**
+ *
+ *  when we catch a packet we callback here.
+ *
+ *
+ **/
+
+static void spo_http_sniffer_callback_fp_ring(
+        const struct pfring_pkthdr *header, const u_char *packet, const u_char *user_bytes) {
+
+    int ret = 0;
+
+    if (unlikely(packet == NULL))   return;
+
+    user_bytes = user_bytes;
+    header = header;
+
+    ret = spo_protocol_type(packet);
+    if (ret == SPOOFER_FAILURE) {
+        goto spo_update_pf;
+    }else {
+        if (ret == IPPROTO_TCP) {
+            /*  running rr */
+            int rr = counter % (proc_queue_header->sniffer[proc_idx].http_msgid[0] - 1);
+            int http_msgid = proc_queue_header->sniffer[proc_idx].http_msgid[rr + 1];
+            spo_do_http_sniffer_callback(packet, http_msgid);
+        }else {
+            if (IPPROTO_UDP) {
+                int rr = counter % (proc_queue_header->sniffer[proc_idx].dns_msgid[0] - 1);
+                int dns_msgid = proc_queue_header->sniffer[proc_idx].dns_msgid[rr + 1];
+                spo_do_http_sniffer_callback(packet, dns_msgid);
+            }
+        }
+
+    }
+
+spo_update_pf:
+
+    if (http_dmn_safe == SPO_DMN_SAFE) {
+        spo_do_timeto_update_http_domain((const char *) spo_cfg->http_dmn_file);
+        http_dmn_safe = 0;
+    }
+
+    return;
+}
+
+
+/**
+ *
+ *  set the sniffer filter.
+ *
+ *  @param p, is the pcap handler.
+ *
+ *  @param filter_exp, is the exp to filte the packet.
+ *
+ *  @return exec status.
+ *
+ *  status finished, tested.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_set_filter(pcap_t *p, const char *filter_exp) {
+
+    int ret = -1;
+    struct bpf_program bpf;
+
+    if (filter_exp == NULL) {
+        perror("filter is null\n");
+        return SPOOFER_FAILURE;
+    }
+
+    /*compile the filter exp*/
+    ret = pcap_compile(p, &bpf, filter_exp, 0, 0);
+    if (ret == SPOOFER_FAILURE) {
+        exit(EXIT_FAILURE);
+    }
+
+    /*set the filter*/
+    ret = pcap_setfilter(p, &bpf);
+    if (ret == SPOOFER_FAILURE) {
+        exit(EXIT_FAILURE);
+    }
+
+    return SPOOFER_OK;
+}
+
+
+/**
+ *
+ *  we use the pcap lib catch the pcaket's here.
+ *
+ *  sniffer start here.
+ *
+ *  we catch the http request packet by libpcap.
+ *
+ *  @param filter, is the filter we filte the workers_logpacket.
+ *
+ *  @return nothing.
+ *
+ **/
+
+void spo_sniffer_pcap(void *info_blk) {
+
+    spo_cfg_ifo_blk_t *info = (spo_cfg_ifo_blk_t *) info_blk;
+
+    char *dev_r = (char *) info->dev_r;
+    const char *filter_exp = (const char *) info->filter;
+
+    if (filter_exp == NULL) {
+        printf("filter is null\n");
+        return;
+    }
+
+    int ret = -1;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handler;
+
+    bpf_u_int32 mask;
+    bpf_u_int32 net;
+
+    /* find ip and ip mask in this dev */
+    if (pcap_lookupnet(dev_r, &net, &mask, errbuf) == SPOOFER_FAILURE) {
+        /* wirte log */
+        net = 0;
+        mask = 0;
+        //exit(EXIT_FAILURE);
+    }
+
+    handler = pcap_open_live(dev_r, SPOOFER_CATCHED_PACKET_LEN, 1, 0, errbuf);
+    if (handler == NULL) {
+        /* wirte log */
+        printf("pcap_open_live err \n");
+    }
+
+    ret = spo_set_filter(handler, filter_exp);
+    if (ret == SPOOFER_FAILURE) {
+        /* wirte log */
+        exit(EXIT_FAILURE);
+    }
+
+    ret = pcap_loop(handler, -1, spo_http_sniffer_callback_pcap, NULL);
+
+    if (ret < 0) {
+        /* wirte log */
+        exit(EXIT_FAILURE);
+    }
+}
+
+
+/**
+ *
+ *  we use the pf ring lib catch the pcaket's here.
+ *
+ *  open the dev, and set the filter use bpf.
+ *
+ *  @param filter_exp, is the exp of the filter.
+ *
+ *  @return nothing.
+ *
+ **/
+
+void spo_sniffer_fp_ring(void *info_blk) {
+
+    pfring *pd;
+    u_int8_t wait_for_packet = 1;
+    spo_cfg_ifo_blk_t *info = (spo_cfg_ifo_blk_t *) info_blk;
+
+    const char *dev_r = (const char *)info->dev_r;
+    char *filter_exp = info->filter;
+
+    pd = pfring_open(dev_r, SPOOFER_CATCHED_PACKET_LEN, 0);
+    if (pd == NULL) {
+        printf("init pd err\n");
+    }
+
+    u_int32_t version;
+    /* 获取版本号 */
+    pfring_version(pd, &version);
+    printf("Using PF_RING v%u.%u.%u\n",
+           (version & 0xFFFF0000) >> 16, (version & 0x0000FF00) >> 8, version & 0x000000FF);
+
+    if (pfring_set_direction(pd, rx_only_direction) != 0) {
+        printf("pfring_set_direction is failure error [%s]\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    if (pfring_set_bpf_filter(pd, filter_exp) != 0) {
+        printf("set_BPF is failure!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* 开启pfring */
+    if (pfring_enable_ring(pd) != 0) {
+        printf("pfring_enable is failure error [%s]\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    pfring_loop(pd, spo_http_sniffer_callback_fp_ring, (u_char*)NULL, wait_for_packet);
+
+    perror("pfring loop err\n");
+    pfring_close(pd);
+}

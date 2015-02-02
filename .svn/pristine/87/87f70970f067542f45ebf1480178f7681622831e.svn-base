@@ -1,0 +1,14 @@
+#ifndef SPOOFER_H
+#define SPOOFER_H
+#include "spoofer_main.h"
+
+
+/* record the update info */
+typedef struct spo_update_info_s {
+    int update_time;
+    char http_file_name[256];
+    char dns_file_name[256];
+}spo_update_info_t;
+
+SPO_RET_VALUE_INT spo_create_msg_queue(int msgid_p, int msgflg);
+#endif // SPOOFER_H

@@ -1,0 +1,53 @@
+#include <sys/msg.h>
+#include <signal.h>
+
+#include "../spoofer_main/spoofer_main.h"
+#include "spoofer_ipcs.h"
+
+
+SPO_RET_STATUS_INT spo_msgget(key_t key, int msgflg) {
+
+    int ret = -1;
+
+    ret = msgget(key, msgflg);
+
+    return ret;
+}
+
+SPO_RET_VALUE_INT spo_msgrcv(int msgid, void *msg_buf, size_t msg_size, long msg_type, int msgflg) {
+
+    ssize_t size = 0;
+
+    size = msgrcv(msgid, msg_buf, msg_size, msg_type, msgflg);
+
+    return size;
+}
+
+
+SPO_RET_VALUE_INT spo_msgsnd(int msgid, void *msg_buf, size_t msg_size, int msgflg) {
+
+    int size = -1;
+
+    if (msg_buf == NULL || msg_size <= 0) {
+        return SPOOFER_FAILURE;
+    }
+
+    size = msgsnd(msgid, msg_buf, msg_size, msgflg);
+
+    return size;
+}
+
+
+__sighandler_t spo_signal(int sig, __sighandler_t handler) {
+    return signal(sig,handler);
+}
+
+
+SPO_RET_VALUE_INT spo_sigaction(int sig, const struct sigaction *act, struct sigaction *oact) {
+
+    if (act == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    return sigaction(sig, act, oact);
+}

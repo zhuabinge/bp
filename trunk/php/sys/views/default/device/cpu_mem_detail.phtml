@@ -1,0 +1,96 @@
+<div id="chartArea" style="height:400px;display:block;"></div>
+<script type="text/javascript">
+//配置路径
+require.config({
+  paths: {
+    echarts: '{$tpldir}/echarts/build/dist'
+  }
+});
+//使用
+require(
+  [
+  'echarts',
+  'echarts/chart/line',
+  'echarts/chart/bar',
+  ],
+  function(ec) {
+    var myChart = ec.init(document.getElementById('chartArea'));
+    var cpuSet = [];
+    var memSet = [];
+    var timeSet = [];
+    {foreach $result2 as $result}
+    var temp = {$result['cpu_mem_data']};
+    var cpuAvg,memAvg;
+    if (temp['count'] != 0) {
+      cpuAvg = Math.round(temp['cpuSum'] / temp['count'] * 100)/100;
+      memAvg = Math.round(temp['memSum'] / temp['count'] * 100)/100;
+    } else {
+      cpuAvg = 0;
+      memAvg = 0;
+    }
+    var date = new Date(parseInt({$result['cpu_mem_created']}) * 1000).toLocaleString().substr(0,20);
+    cpuSet.push(cpuAvg);
+    memSet.push(memAvg);
+    timeSet.push(date);
+    {/foreach}
+    option = {
+      title: {
+        text: 'CPU和内存的使用率',
+      },
+      tooltip: {
+        trigger: 'axis'
+      },
+      legend: {
+        data: ['CPU','内存']
+      },
+      toolbox: {
+        show: true,
+        feature: {
+          dataView: {
+            show: true,
+            readOnly: false
+          },
+          magicType: {
+            show: true,
+            type: ['line', 'bar']
+          },
+          restore: {
+            show: true
+          },
+          saveAsImage: {
+            show: true
+          }
+        }
+      },
+      calculable: true,
+      xAxis: [{
+        type: 'category',
+        boundaryGap: false,
+        data: timeSet
+      }],
+      yAxis: [{
+        type: 'value',
+        axisLabel: {
+          {literal}
+          formatter: '{value} %'
+          {/literal}
+        }
+      }],
+      series: [{
+        name: 'CPU',
+        type: 'line',
+        smooth:true,
+        data: cpuSet,
+      },
+      {
+        name: '内存',
+        type: 'line',
+        smooth:true,
+        data: memSet,
+      }]
+    };
+    myChart.setOption(option);
+  }
+  );
+</script>
+

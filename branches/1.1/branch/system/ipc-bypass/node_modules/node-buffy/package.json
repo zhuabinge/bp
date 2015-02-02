@@ -1,0 +1,43 @@
+{
+  "name": "node-buffy",
+  "version": "0.0.0",
+  "description": "Node.js async functions buffering",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha -R spec test/test.js"
+  },
+  "devDependencies": {
+    "expect.js": "*"
+  },
+  "dependencies": {
+    "optimal": "git://github.com/coderz/optimal.git",
+    "kilo": "git://github.com/stoke/kilo.git"
+  },
+  "repository": "",
+  "author": {
+    "name": "stoke"
+  },
+  "license": "MIT",
+  "readme": "buffy\n=====\n\nNode.js async functions buffering",
+  "readmeFilename": "README.md",
+  "_id": "node-buffy@0.0.0",
+  "dist": {
+    "shasum": "4ca39be4f4d874cd018f3b63011374bfac1d4771",
+    "tarball": "http://registry.npmjs.org/node-buffy/-/node-buffy-0.0.0.tgz"
+  },
+  "_npmVersion": "1.1.66",
+  "_npmUser": {
+    "name": "stoke",
+    "email": "stoke95@gmail.com"
+  },
+  "maintainers": [
+    {
+      "name": "stoke",
+      "email": "stoke95@gmail.com"
+    }
+  ],
+  "directories": {},
+  "_shasum": "4ca39be4f4d874cd018f3b63011374bfac1d4771",
+  "_resolved": "https://registry.npmjs.org/node-buffy/-/node-buffy-0.0.0.tgz",
+  "_from": "node-buffy@*"
+}

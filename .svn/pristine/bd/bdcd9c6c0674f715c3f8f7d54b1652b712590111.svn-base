@@ -1,0 +1,22 @@
+#ifndef IPCS_H
+#define IPCS_H
+
+#include <sys/msg.h>
+#include <signal.h>
+
+typedef void (*spo_sa_sigaction)(int, siginfo_t *, void *);
+
+SPO_RET_STATUS_INT spo_msgget(key_t key, int msgflg);
+SPO_RET_STATUS_INT spo_msgrcv(int msgid, void *msg_buf, size_t msg_size, long msg_type, int msgflg);
+SPO_RET_VALUE_INT spo_msgsnd(int msgid, void *msg_buf, size_t msg_size, int msgflg);
+
+/* sig mod */
+
+__sighandler_t spo_signal(int sig, __sighandler_t handler);
+SPO_RET_VALUE_INT spo_sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
+SPO_RET_STATUS_INT spo_signal_a_sig(int sig, spo_sa_sigaction func);
+SPO_RET_STATUS_INT spo_del_sig_in_set(int sig, sigset_t *set);
+SPO_RET_STATUS_INT spo_fill_sigmask(sigset_t *set);
+SPO_RET_STATUS_INT spo_mask_all_sig();
+SPO_RET_STATUS_INT spo_signal_a_sigset(sigset_t *set);
+#endif // IPCS_H

@@ -1,0 +1,15 @@
+#ifndef SPOOFER_FILE_H
+#define SPOOFER_FILE_H
+
+SPO_RET_VALUE_INT spo_open(const char *file, int file_flg, int perm);
+
+size_t spo_read(int fd, void *buf, int n_size);
+ssize_t spo_write(int fd, const void *buf, size_t size);
+
+FILE *spo_fopen(const char *file_name, const char *modes);
+SPO_RET_STATUS_INT spo_fclose(FILE *fp);
+
+size_t spo_file_size(const char *file_path);
+size_t spo_read_file_data(const char *file_path, void *buf, int n);
+
+#endif // SPOOFER_FILE_H

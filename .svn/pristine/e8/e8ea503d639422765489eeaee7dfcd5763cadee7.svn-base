@@ -1,0 +1,18 @@
+#ifndef SPOOFER_SENDER_H
+#define SPOOFER_SENDER_H
+
+#include <sys/types.h>
+#include <pcap.h>
+#include <pcap/pcap.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/if_ether.h>
+#include <net/ethernet.h>
+#include <netinet/ether.h>
+#include <libnet.h>
+
+void spo_dns_sender(void *info_blk);
+
+#endif // SPOOFER_SENDER_H

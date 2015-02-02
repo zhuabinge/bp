@@ -1,0 +1,49 @@
+{include file='before_body.phtml'}
+<body class='contrast-fb without-footer'>
+  {include file='header.phtml'}
+  <div id='wrapper'>
+    {include file='sidebar.phtml' navigation='system'}
+    <section id='content'>
+      <div class='container'>
+        <div class='row' id='content-wrapper'>
+          <div class='col-xs-12'>
+            <div class='page-header page-header-with-buttons'>
+              <h1 class='pull-left'>
+                <i class='icon-home'></i>
+                <span>首页</span>
+              </h1>
+            </div>
+            <div class='row'>
+              <div class='col-sm-12'>
+                <div class='tab-pane' id='tabData' style="display:block;">
+                  <script type="text/javascript" src="{$tpldir}/echarts/build/dist/echarts.js"></script>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {include file='footer.phtml'}
+      </div>
+    </section>
+  </div>
+</body>
+{include file='after_body.phtml'}
+<script type="text/javascript">
+function getPage() {
+  $.ajax({
+    url: "{url('home/getHomeView')}",
+    type: 'POST',
+    data: {},
+    datatype: 'json',
+    success: function(data){
+      $('#tabData').html(data);
+    }
+  });
+}
+window.onload = function() {
+  getPage();
+};
+</script>
+</html>
+
+

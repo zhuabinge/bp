@@ -1,0 +1,9 @@
+{
+  "name": "ByPass-Business-System",
+  "private": true,
+  "dependencies": {
+    "redis": "*",
+    "log4js": "*",
+    "cookie": "*"
+  }
+}

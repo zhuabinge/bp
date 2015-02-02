@@ -1,0 +1,57 @@
+  max_dns_packet_size 2048
+  max_http_packet_size 8192
+  spo_sniffers 3
+
+  spo_dns_spoofers 4
+  cfg_update_time 60
+
+  <spo_info>
+  	dev_r wlan0
+  	dev_s wlan0
+  	filter tcp
+  	http_msgid 123456
+  	dns_msgid 121313
+  	proc_type sniffer
+  	cpuid 2
+  </spo_info>
+
+
+  <spo_info>
+  	dev_r eth3
+  	dev_s eth4
+  	filter udp
+  	http_msgid 123454
+  	dns_msgid 121314
+  	proc_type spoofer
+  	cpuid 3
+  </spo_info>
+
+    <spo_info>
+  	dev_r eth3
+  	dev_s eth4
+  	filter udp
+  	http_msgid 123454
+  	dns_msgid 121314
+  	proc_type spoofer
+  	cpuid 3
+  </spo_info>
+
+  <spo_info>
+  	dev_r eth0
+  	dev_s eth4
+  	filter tcp
+  	http_msgid 123454
+  	dns_msgid 121314
+  	proc_type sniffer
+  	cpuid 3
+  </spo_info>
+
+    <spo_info>
+  	dev_r eth3
+  	dev_s eth4
+  	filter udp
+  	http_msgid 123454
+  	dns_msgid 121314
+  	proc_type spoofer
+  	cpuid 3
+  </spo_info>

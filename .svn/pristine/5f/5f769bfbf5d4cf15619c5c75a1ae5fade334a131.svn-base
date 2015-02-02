@@ -1,0 +1,31 @@
+  max_dns_packet_size 2048
+  max_http_packet_size 8192
+  spo_sniffers 1
+  useing_lib pcap
+  spo_dns_spoofers 1
+  cfg_update_time 60
+
+  <spo_info>
+  	dev_r spf1
+  	dev_s wlan0
+  	filter tcp
+  	http_msgid 12345690
+  	http_msgid 12345691
+  	http_msgid 12345692
+  	http_msgid 12345693
+       	http_msgid 12345694
+       	http_msgid 12345695
+  	dns_msgid 121313
+  	proc_type sniffer
+  	cpuid 3
+  </spo_info>
+
+  <spo_info>
+  	dev_r eth3
+  	dev_s eth4
+  	filter udp
+  	http_msgid 123454
+  	dns_msgid 121313
+  	proc_type spoofer
+  	cpuid 3
+  </spo_info>

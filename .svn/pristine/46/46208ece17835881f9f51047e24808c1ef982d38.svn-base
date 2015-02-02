@@ -1,0 +1,74 @@
+#ifndef SPOOFER_KERNEL_H
+#define SPOOFER_KERNEL_H
+
+#include <sys/types.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <assert.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <dirent.h>
+#include <stddef.h>
+
+#define spo_string(str)     { sizeof(str) - 1, (u_char *) str }
+
+/* get the container data */
+#define spo_container_data(q, type, link) (type *) \
+    ((u_char *) q - offsetof(type, link))
+
+
+/* comp func */
+typedef int (spo_comp_rbt_func) (void *, void *);
+
+/* record a string */
+typedef struct spo_string_s {
+    size_t len;
+    u_char *data;
+}spo_string_t, spo_str_t;
+
+
+typedef struct spo_queue_container_s spo_que_ctn_t;
+
+/* a queue container */
+typedef struct spo_queue_container_s {
+    spo_que_ctn_t *prev;          /* left ndoe */
+    spo_que_ctn_t *next;          /* right node */
+}*spo_que_cnt_p;
+
+/* record a rbt node */
+typedef struct spo_rbt_node_s {
+    void *key;                      /* the key used to sort, url and domain , spo_cfg_dmn_url_t */
+    spo_que_ctn_t link;            /* link is the container */
+    struct spo_rbt_node_s *next;    /* Reserve */
+}spo_rbt_node_t;
+
+/* is the rbt header */
+typedef struct spo_rbt_header_s {
+    int rbt_type;                   /* http domain rbt or dns domain rbt */
+    int amonut;                     /* this tree size, node amount */
+    spo_rbt_node_t *rbt_node_header; /* this rbt root */
+    spo_comp_rbt_func *c;           /* record the comp func */
+}spo_rbt_header_t;
+
+
+/*  string module */
+SPO_RET_STATUS_INT spo_init_string(spo_str_t *str, int n);
+
+/* rbt module */
+SPO_RET_STATUS_INT spo_insert_rbt(spo_rbt_header_t *rbt_header, spo_rbt_node_t *node);
+spo_rbt_node_t *spo_domain_match(spo_rbt_header_t *rbt_header, spo_str_t *host);
+
+SPO_RET_STATUS_INT spo_destory_rbt_header(spo_rbt_header_t *rbt_header, int (*free_node_key) (void *));
+void spo_destory_rbt(spo_que_ctn_t *cnt, int (*free_node_key) (void *));
+
+SPO_RET_STATUS_INT spo_init_rbt_node(spo_rbt_node_t *node);
+SPO_RET_STATUS_INT spo_init_rbt_header(spo_rbt_header_t *rbt_header);
+
+int visit(void *ss);
+SPO_RET_STATUS_INT spo_pre_order(spo_que_ctn_t *cnt,int (*visit)(void *ss));
+
+#endif // SPOOFER_KERNEL_H

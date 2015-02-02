@@ -1,0 +1,252 @@
+#include "spoofer_log.h"
+#include "../spoofer_kernel/spoofer_kernel.h"
+#include "../spoofer_file/spoofer_file.h"
+#include "../spoofer_ipcs/spoofer_ipcs.h"
+
+
+
+int spo_log_msgid = 0;                      /* this log msgid is the queue tag for log */
+int spo_log_status = SPOOFER_LOG_CLOSE;     /* this is the log module status */
+
+char spo_log_file_err[256];                 /* this is the err msg's file name */
+char spo_log_file_warning[256];             /* this is the warning msg's fuile name */
+char spo_log_file_message[256];             /* this is the message msg's fuile name */
+
+int spo_log_fd_error = -1;                  /* the err msg's file fd */
+int spo_log_fd_wraning = -1;                /* the warning msg's file fd */
+int spo_log_fd_message = -1;                /* the message msg's file fd */
+
+
+/**
+ *  init the file name, just copy the file name form config file to "dst_log_file".
+ *
+ *  @param dst_log_file, save the file name form config file.
+ *
+ *  @param src_log_file, file name form config file
+ *
+ *  @param len, is the file name length.
+ *
+ *  @return SPO_RET_STATUS_INT, the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_init_log_file(u_char *dst_log_file, u_char *src_log_file, size_t len) {
+
+    if (dst_log_file == NULL || src_log_file == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    memcpy(dst_log_file, src_log_file, len);
+
+    return SPOOFER_OK;
+}
+
+/**
+ *  write the msg info to the log file.
+ *
+ *  @param fd, is the log file's fd.
+ *
+ *  @param log_msg, is the log msg info.
+ *
+ *  @return SPO_RET_STATUS_INT, the exec status.
+ *
+ **/
+
+static SPO_RET_STATUS_INT spo_do_write_log(int fd, void *log_msg) {
+
+    int ret = -1;
+
+    if (log_msg == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    spo_log_msg_t *msg = (spo_log_msg_t *) log_msg;
+    size_t msg_len = strlen(msg->info.msg);
+
+    ret = spo_write(fd, msg->info.msg, msg_len);
+    if (ret < 0) {
+        perror("write err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}
+
+/**
+ *  get the log msg in the msg queue.
+ *
+ *  @param log_msgid, is the msg queue id.
+ *
+ *  @param msg, is the msg pointer.
+ *
+ *  @return void *, is the msg pointer.
+ *
+ **/
+void *spo_get_log_msg(int log_msgid, spo_log_msg_t *msg) {
+
+    int ret = -1;
+
+    ret = spo_msgrcv(log_msgid, msg, SPOOFER_MAX_LOG_INFO_SIZE, SPOOFER_LOG_MSG_TYPE, 0);
+    if (ret == -1) {
+        perror("msg rvc err\n");
+        return NULL;
+    }
+
+    return msg;
+}
+
+/**
+ *  open the log file.
+ *
+ *  @return SPO_RET_STATUS_INT, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_log_open_file() {
+
+    int fd_err_error_tag = -1;
+    int fd_warn_error_tag = -1;
+    int fd_msg_error_tag = -1;
+
+    spo_log_fd_error = spo_open(spo_log_file_err, O_CREAT | O_RDWR, 0666);
+    if (spo_log_fd_error == -1) {
+        perror("open err error\n");
+        fd_err_error_tag = 1;
+        goto open_err;
+    }
+
+    spo_log_fd_wraning = spo_open(spo_log_file_warning, O_CREAT | O_RDWR, 0666);
+    if (spo_log_fd_wraning == -1) {
+        perror("open err warning\n");
+        fd_warn_error_tag = 1;
+        goto open_err;
+    }
+
+    spo_log_fd_message = spo_open(spo_log_file_message, O_CREAT | O_RDWR, 0666);
+    if (spo_log_fd_message == -1) {
+        perror("open err message\n");
+        fd_msg_error_tag = 1;
+        goto open_err;
+    }
+
+    return SPOOFER_OK;
+
+    /* when open file we close all file fd, this should be changed */
+open_err:
+
+    if (fd_err_error_tag == 1) {
+        return SPOOFER_FAILURE;
+    }
+
+    if (fd_warn_error_tag == 1) {
+        close(spo_log_fd_error);
+        return SPOOFER_FAILURE;
+    }
+
+    if (fd_msg_error_tag == 1) {
+        close(spo_log_fd_error);
+        close(spo_log_fd_wraning);
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_FAILURE;
+}
+
+
+/**
+ *  send the log msg to the  msg queue.
+ *
+ *  @param log_msgid, is the msg queue id.
+ *
+ *  @param log_msg, is the msg pointer.
+ *
+ *  @return size, is the msg size we sended.
+ *
+ **/
+SPO_RET_VALUE_INT spo_send_log_msg(int log_msgid, void *log_msg) {
+
+    int size = -1;
+
+    if (log_msg == NULL) {
+        return SPOOFER_FAILURE;
+    }
+
+    size = spo_msgsnd(log_msgid, log_msg, SPOOFER_MAX_LOG_INFO_SIZE, 0);
+    if (size == SPOOFER_FAILURE) {
+        perror("msg send err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    return size;
+}
+
+/**
+ *  the entrance of the log module.
+ *
+ *  call the spo_do_write_log() to write the msg info to the file.
+ *
+ *  this log_msgid is key_t class.
+ *
+ *  @param log_msgid, is the
+ **/
+
+SPO_RET_VALUE_INT spo_write_log(int log_msgid) {
+
+    while (SPOOFER_TRUE) {
+        spo_log_msg_t msg;
+
+        memset(&msg.info, 0, SPOOFER_MAX_LOG_INFO_SIZE);
+
+        spo_get_log_msg(log_msgid, &msg);
+
+        printf("get msg %s\n", msg.info.msg);
+
+        spo_do_write_log(spo_log_fd_error, &msg);
+    }
+
+    close(spo_log_fd_error);
+
+    return 0;
+}
+
+/**
+ *  here we start the log module, just get the file name and open the log file.
+ *
+ *  @return SPO_RET_STATUS_INT, is the exec status.
+ *
+ **/
+
+SPO_RET_STATUS_INT spo_start_write_log() {
+
+    spo_str_t str_error = spo_string("/home/lele/test_log_err");
+    spo_str_t str_wraning = spo_string("/home/lele/test_log_wran");
+    spo_str_t str_message = spo_string("/home/lele/test_log_msg");
+
+    int ret = -1;
+
+    ret = spo_init_log_file((u_char *)spo_log_file_err, str_error.data, str_error.len);
+    if (ret == SPOOFER_FAILURE) {
+        printf("init log err\n");
+       return SPOOFER_FAILURE;
+    }
+
+    ret = spo_init_log_file((u_char *)spo_log_file_warning, str_wraning.data, str_wraning.len);
+    if (ret == SPOOFER_FAILURE) {
+        perror("init log err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    ret = spo_init_log_file((u_char *)spo_log_file_message, str_message.data, str_message.len);
+    if (ret == SPOOFER_FAILURE) {
+        perror("init log err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    ret = spo_log_open_file();
+    if (ret == SPOOFER_FAILURE) {
+        printf("open file err\n");
+        return SPOOFER_FAILURE;
+    }
+
+    return SPOOFER_OK;
+}

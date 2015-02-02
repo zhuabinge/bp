@@ -1,0 +1,61 @@
+    <header>
+      <nav class='navbar navbar-default'>
+        <a class='navbar-brand' href='index.html'>旁路系统</a>
+        <a class='toggle-nav btn pull-left' href=''>
+          <i class='icon-reorder'></i>
+        </a>
+        <ul class='nav'>
+          <li class='dark user-menu'>
+            <a href="#" onclick='createConfigFile()'>
+              生成配置文件
+            </a>
+          </li>
+          <li class='user-menu'>
+            <a href='#' class="has-tooltip" data-placement="bottom" title="" data-original-title="用户名">
+              <!-- <img width="23" height="23" alt="Mila Kunis" src="assets/images/avatar.jpg" /> -->
+              <span class='user-name'>{if isset($username)}{$username}{/if}</span>
+            </a>
+          </li>
+          <li class='user-menu'>
+            <a href="{url('login/logout')}" class="has-tooltip" data-placement="bottom" title="" data-original-title="退出系统">
+              <i class='icon-signout'></i>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </header>
+    <script type='text/javascript'>
+    function createConfigFile() {
+      var flag = 0;
+      var str = '';
+      $.ajaxSetup({
+        async: false
+      });
+      $.post('{url('business/makeHttpDataFile')}', {}, function(data) {
+        if (data['success']) {
+          flag++;
+        } else {
+          str += data['msg'] + '\n';
+        }
+      }, 'json');
+      $.post('{url('business/makeHttpRuleFile')}', {}, function(data) {
+        if (data['success']) {
+          flag++;
+        } else {
+          str += data['msg'] + '\n';
+        }
+      }, 'json');
+      $.post('{url('interface/makeInterfaceFile')}', {}, function(data) {
+        if (data['success']) {
+          flag++;
+        } else {
+          str += data['msg'] + '\n';
+        }
+      }, 'json');
+      if (flag == 3) {
+        alert('生成配置文件成功！');
+      } else {
+        alert(str);
+      }
+    }
+    </script>

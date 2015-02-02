@@ -1,0 +1,19 @@
+{
+  "appenders": [{
+      "type": "console"
+    }, {
+      "type": "file",
+      "category": "app",
+      "filename": "logs/app.log",
+      "maxLogSize": 1048576,
+      "backups": 3,
+      "level": "ERROR"
+    }, {
+      "type": "file",
+      "category": "script",
+      "filename": "logs/script.log",
+      "maxLogSize": 1048576,
+      "backups": 3,
+      "level": "ERROR"
+    }]
+}

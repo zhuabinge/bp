@@ -1,0 +1,43 @@
+#ifndef SPOOFER_LOG_H
+#define SPOOFER_LOG_H
+
+#include "../spoofer_main/spoofer_main.h"
+
+#define SPOOFER_LOG_TYPE_ERROR      (-1)        /* the mag is err type */
+#define SPOOFER_LOG_TYPE_WRANING    (-2)        /* the mag is warning type */
+#define SPOOFER_LOG_TYPE_MESSAGE    (-4)        /* the mag is message type */
+
+
+#define SPOOFER_MAX_LOG_MSG_SIZE    (256)       /* the msg's size can't more than this */
+
+#define SPOOFER_MAX_LOG_FILE_NAME_SIZE  (256)   /* the log file name can't more than this */
+
+#define SPOOFER_LOG_MSG_TYPE        (1)         /* the log msg's type is 1 in linux system */
+
+extern int spo_log_msgid;                       /* log msg queue id, all log's msg can get in this queue */
+extern int spo_log_status;                      /* the log module status, is be -1, the module was closed */
+
+extern char spo_log_file_err[SPOOFER_MAX_LOG_FILE_NAME_SIZE];       /* the file name that record the err's msg */
+extern char spo_log_file_warning[SPOOFER_MAX_LOG_FILE_NAME_SIZE];   /* the file name that recode the warning's msg */
+extern char spo_log_file_message[SPOOFER_MAX_LOG_FILE_NAME_SIZE];   /* the file name that recode the message's msg */
+
+/* save the log msg info */
+typedef struct spo_log_info_s {
+    pid_t pid;                              /* msg owner */
+    char msg[SPOOFER_MAX_LOG_MSG_SIZE];     /* msg's info */
+}spo_log_info_t;
+
+#define SPOOFER_MAX_LOG_INFO_SIZE (sizeof(spo_log_info_t))      /* info is the msg's info, this size is max msg size */
+
+/* this struct is record a log msg */
+typedef struct spo_log_msg_s {
+    long msg_type;   /* msg type, can be "err", "warning", "message" */
+    spo_log_info_t info;    /* is the msg info */
+}spo_log_msg_t;
+
+
+SPO_RET_STATUS_INT spo_start_write_log();
+SPO_RET_VALUE_INT spo_write_log(int log_msgid);
+SPO_RET_VALUE_INT spo_send_log_msg(int log_msgid, void *log_msg);
+
+#endif // SPOOFER_LOG_H

@@ -1,0 +1,27 @@
+<form method="post" action="{url('interface/setInterface')}" class="form form-horizontal col-md-12" style="margin-bottom: 0; padding:0;" accept-charset="UTF-8">
+  <input type="hidden" name="type" value="1">
+  <input type="hidden" name="inter_id" value="{$inter_id}">
+  <div class='form-group'>
+    <label class='col-sm-3 control-label' for='out_num'>进程数：</label>
+    <div class='col-sm-8'>
+      {if isset($result2['out_num']) && $result2['out_num']}
+      <input type='hidden' name='out_id' value="{$result2['out_id']}">
+      <input type='hidden' name='out_left_sum' value="{$result2['out_left_sum']}">
+      <input class='form-control' name="out_num" id='out_num' placeholder='进程数' type='number' min='0' max="{$result2['out_left_sum']}" value="{$result2['out_num']}">
+      {else}
+      <input type='hidden' name='out_left_sum' value="{$result2['out_left_sum']}">
+      <input class='form-control' name="out_num" id='out_num' placeholder='进程数' type='number' min='0' max="{$result2['out_left_sum']}" value='0'>
+      {/if}
+    </div>
+  </div>
+  <div class='form-actions'>
+    <div class='row'>
+      <div class='col-md-8 col-md-offset-3'>
+        <button class='btn btn-primary' type='submit'>
+          保存
+        </button>
+        <button class='btn' type='reset'>取消</button>
+      </div>
+    </div>
+  </div>
+</form>

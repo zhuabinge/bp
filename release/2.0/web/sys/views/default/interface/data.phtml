@@ -1,0 +1,99 @@
+<div class="modal-dialog">
+  <div class="modal-content">
+    <div class="modal-header">
+      <button aria-hidden="true" class="close" data-dismiss="modal" type="button">×</button>
+      <h4 class="modal-title">接口编辑</h4>
+    </div>
+    <div class="modal-body">
+      <div class='row'>
+        <div class='col-sm-12'>
+          <form class="form form-horizontal" style="margin-bottom: 0;" method="post" action="#" accept-charset="UTF-8">
+            <div class='form-group'>
+              <label class='col-md-2 control-label'>接口名：</label>
+              <div class='col-md-5'>
+                <span class='uneditable-input form-control'>{$result1->name}</span>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class='tabbable'>
+        <div class="row">
+          <div class='col-md-12'>
+            <ul class='nav nav-tabs nav-tabs-simple'>
+              {if $result1->type == 1}
+              <li class='active'>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('1', 1, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  发包
+                </a>
+              </li>
+              {else}
+              <li>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('1', 1, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  发包
+                </a>
+              </li>
+              {/if}
+              {if $result1->type == 2}
+              <li class='active'>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('2', 2, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  收包
+                </a>
+              </li>
+              {else}
+              <li>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('2', 2, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  收包
+                </a>
+              </li>
+              {/if}
+              {if $result1->type == 3}
+              <li class='active'>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('3', 3, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  管理
+                </a>
+              </li>
+              {else}
+              <li>
+                <a class='green-border' data-toggle='tab' href='#test1' onclick="getPage('3', 3, {$result1->inter_id})">
+                  <i class='icon-bookmark-empty'></i>
+                  管理
+                </a>
+              </li>
+              {/if}
+            </ul>
+          </div>
+        </div>
+        <div class='tab-content'>
+          <!-- test1 start -->
+          <div class='tab-pane active' id='test1' style="display:block;">
+
+          </div>
+          <!-- test1 end -->
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script type="text/javascript">
+function getPage(page, type, inter_id) {
+  $.ajax({
+    url: 'interface/getInterfaceView',
+    type: 'POST',
+    data: { page: page, type:  type, inter_id: inter_id},
+    datatype: 'json',
+    success: function(data){
+      $('#test1').html(data);
+    }
+  });
+}
+
+getPage({$result1->type}, {$result1->type}, {$result1->inter_id});
+</script>

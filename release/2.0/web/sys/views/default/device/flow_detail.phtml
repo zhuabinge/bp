@@ -1,0 +1,102 @@
+<div id="chartArea" style="height:400px;display:block;"></div>
+<script type="text/javascript">
+//配置路径
+require.config({
+  paths: {
+    echarts: '{$tpldir}/echarts/build/dist'
+  }
+});
+//使用
+require(
+  [
+  'echarts',
+  'echarts/chart/line',
+  'echarts/chart/bar',
+  ],
+  function(ec) {
+    var myChart = ec.init(document.getElementById('chartArea'));
+    var upSum = [];
+    var downSum = [];
+    var timeSet = [];
+    var flag = false;
+    {foreach $result2 as $result}
+    var temp = {$result['net_data']};
+    var date = new Date(parseInt({$result['netport_created']}) * 1000).toLocaleString().substr(0,20);
+    if (temp['{$currentPort}']) {
+      upSum.push(Math.round(temp['{$currentPort}']['upSum'] /1024 /1024 * 100000)/100000);
+      downSum.push(Math.round(temp['{$currentPort}']['downSum'] /1024 /1024 * 100000)/100000);
+      timeSet.push(date);
+      flag = true;
+    }
+    {/foreach}
+    if (!flag) {
+      upSum.push(0);
+      downSum.push(0);
+      timeSet.push(0);
+    }
+    option = {
+      title: {
+        text: '{$currentPort}',
+      },
+      tooltip: {
+        trigger: 'axis'
+      },
+      legend: {
+        data: ['上行','下行']
+      },
+      toolbox: {
+        show: true,
+        feature: {
+          dataView: {
+            show: true,
+            readOnly: false
+          },
+          magicType: {
+            show: true,
+            type: ['line', 'bar','stack','tiled']
+          },
+          restore: {
+            show: true
+          },
+          saveAsImage: {
+            show: true
+          }
+        }
+      },
+      calculable: true,
+      xAxis: [{
+        type: 'category',
+        boundaryGap: false,
+        data: timeSet
+      }],
+      yAxis: [{
+        type: 'value',
+        axisLabel: {
+          {literal}
+          formatter: '{value} M'
+          {/literal}
+        }
+      }],
+      series: [{
+        name: '上行',
+        type: 'line',
+        smooth:true,
+        {literal}
+        itemStyle: {normal: {areaStyle: {type: 'default'}}},
+        {/literal}
+        data: upSum,
+      },
+      {
+        name: '下行',
+        type: 'line',
+        smooth:true,
+        {literal}
+        itemStyle: {normal: {areaStyle: {type: 'default'}}},
+        {/literal}
+        data: downSum,
+      }]
+    };
+    myChart.setOption(option);
+  }
+  );
+</script>

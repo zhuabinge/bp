@@ -1,0 +1,80 @@
+#ifndef SPOOFER_CONFIG_H
+#define SPOOFER_CONFIG_H
+
+#include <sys/types.h>
+#include "../spoofer_kernel/spoofer_kernel.h"
+
+#define SPOOFER_PROC_NAME_STR_LEN   (16)
+
+/**/
+typedef struct spo_config_info_block_s {
+    int http_msgid;                                         /* http's msg id for this block */
+    int dns_msgid;                                          /* dns's msg id for this block */
+    int cpu_id;                                             /* cpu id for this block's proc */
+    pid_t pid;                                              /* proc id */
+    u_char *dev_r;                                          /* the dev to recv */
+    u_char *dev_s;                                          /* the dev to send th packets */
+    char *filter;                                           /* this block filter */
+    char type[SPOOFER_PROC_NAME_STR_LEN];                   /* this block belong dns or http */
+    struct spo_config_info_block_s *next;
+}spo_config_info_block_t, spo_cfg_ifo_blk_t;
+
+
+
+/* mark a block to record the domain and url */
+typedef struct spo_config_domain_url_block_s {
+    spo_str_t domain;
+    spo_str_t url;
+    struct spo_config_domain_url_block_s *next;
+}spo_cfg_dmn_url_t;
+
+
+/* mark a block to record the domain and url */
+typedef struct spo_config_domain_block_s {
+    spo_cfg_dmn_url_t *dmn_url;              /* really mark the info for domain and url */
+    spo_cfg_dmn_url_t *dmn_url_tail;
+    struct spo_config_domain_block_s *next;
+}spo_cfg_dmn_blk_t;
+
+
+
+/* mark a config file's all info */
+typedef struct spo_config_s {
+    int sniffers;                       /* this is global */
+    int dns_spoofers;                    /* this is global */
+    int cfg_update_time;                /* this the time to reload the config file (s) */
+    int max_dns_packet_size;            /* the dns packet's max value */
+    int max_http_packet_size;           /* the http packet's max value */
+    spo_cfg_ifo_blk_t *cfg_ifo;         /* mark a scope for the proc */
+    spo_cfg_ifo_blk_t *cfg_ifo_tail;    /* pointer the info queue's tail */
+}spo_cfg_t;
+
+
+
+typedef struct spo_http_domain_s {
+    pthread_mutex_t mutex;
+    spo_rbt_header_t *rbt_header;
+}spo_http_dmn_t;
+
+
+extern spo_cfg_t *spo_cfg;
+
+extern spo_http_dmn_t *spo_http_dmn;
+
+
+spo_cfg_t *spo_load_config(const char *cfg_file_path);
+
+
+SPO_RET_STATUS_INT spo_destory_cfg(spo_cfg_t *cfg);
+SPO_RET_STATUS_INT spo_free_dmn_url(void *dmn_url_);
+
+
+spo_rbt_header_t *spo_load_http_domain_cfg(const char *domain_file_path);
+
+SPO_RET_STATUS_INT spo_do_update_http_dmn_cfg(void *arg, spo_http_dmn_t *http_dmn);
+
+SPO_RET_STATUS_INT spo_update_http_dmn_cfg(const char *cfg_path, spo_http_dmn_t *http_dmn);
+
+void spo_timeto_update_http_domain(int sig, siginfo_t *siginfo, void *p);
+
+#endif // SPOOFER_CONFIG_H

@@ -1,0 +1,249 @@
+{include file='before_body.phtml'}
+<body class='contrast-fb without-footer'>
+  {include file='header.phtml'}
+  <div id='wrapper'>
+    {include file='sidebar.phtml'}
+    <section id='content'>
+      <div class='container'>
+        <div class='row' id='content-wrapper'>
+          <div class='col-xs-12'>
+            <div class='page-header page-header-with-buttons'>
+              <h1 class='pull-left'>
+                <i class='icon-edit'></i>
+                <span>主配置</span>
+              </h1>
+            </div>
+            <div class='row'>
+              <div class='col-sm-12'>
+                <form id="mainconfig" method="post" action="{url('interface/addMainConfig')}" class="form form-horizontal" style="margin-bottom: 0;" accept-charset="UTF-8">
+                  <input name="authenticity_token" type="hidden" >
+                  {if !empty($result->base_info_id)}
+                  <input type="hidden" name="base_info_id" value="{$result->base_info_id}">
+                  {/if}
+                  {if !empty($result->http_method)}
+                  <div class='form-group'>
+                    <label class='col-md-2 control-label' for='analysts_cache'>analysts_cache：</label>
+                    <div class='col-md-4'>
+                      <select name="analysts_cache" class='form-control' >
+                        {if $result->analysts_cache == 1}
+                        <option value="1" selected>M</option>
+                        {else}
+                        <option value="1">M</option>
+                        {/if}
+                        {if $result->analysts_cache == 2}
+                        <option value="2" selected>G</option>
+                        {else}
+                        <option value="2">G</option>
+                        {/if}
+                      </select>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-sm-2 control-label' for='dns1'>DNS1：</label>
+                    <div class='col-sm-4'>
+                      <input class='form-control' name="dns1" id='dns1' placeholder='DNS1' value="{$result->dns1}"  type='text'>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-sm-2 control-label' for='dns2'>DNS2：</label>
+                    <div class='col-sm-4'>
+                      <input class='form-control' name="dns2" id='dns2' placeholder='DNS2' value="{$result->dns2}"  type='text'>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-md-2 control-label' for='method'>method：</label>
+                    <div class='col-md-10'>
+                      {if $result->http_method[0] == '1'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="1"  type='checkbox' checked>OPTIONS
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="1"  type='checkbox'>OPTIONS
+                      </label>
+                      {/if}
+                      {if $result->http_method[1] == '2'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="2"  type='checkbox' checked>HEAD
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="2"  type='checkbox'>HEAD
+                      </label>
+                      {/if}
+                      {if $result->http_method[2] == '3'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="3"  type='checkbox' checked>GET
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="3"  type='checkbox'>GET
+                      </label>
+                      {/if}
+                      {if $result->http_method[3] == '4'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="4"  type='checkbox' checked>POST
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="4"  type='checkbox'>POST
+                      </label>
+                      {/if}
+                      {if $result->http_method[4] == '5'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="5"  type='checkbox' checked>PUT
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="5"  type='checkbox'>PUT
+                      </label>
+                      {/if}
+                      {if $result->http_method[5] == '6'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="6"  type='checkbox' checked>DELETE
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="6"  type='checkbox'>DELETE
+                      </label>
+                      {/if}
+                      {if $result->http_method[6] == '7'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="7"  type='checkbox' checked>TRACE
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="7"  type='checkbox'>TRACE
+                      </label>
+                      {/if}
+                      {if $result->http_method[7] == '8'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="8"  type='checkbox' checked>CONNECT
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="8"  type='checkbox'>CONNECT
+                      </label>
+                      {/if}
+                      {if $result->http_method[8] == '9'}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="9"  type='checkbox' checked>PATCH
+                      </label>
+                      {else}
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="9"  type='checkbox'>PATCH
+                      </label>
+                      {/if}
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-md-2 control-label' for='dns_spoofers'>更新时间：</label>
+                    <div class='col-md-4'>
+                      {$result->updated|date_format:"%Y-%m-%d %H:%M:%S"}
+                    </div>
+                  </div>
+                  {else}
+                  <div class='form-group'>
+                    <label class='col-md-2 control-label' for='analysts_cache'>analysts_cache：</label>
+                    <div class='col-md-4'>
+                      <select name="analysts_cache" class='form-control' >
+                        <option value="1">M</option>
+                        <option value="2">G</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-sm-2 control-label' for='dns1'>DNS1：</label>
+                    <div class='col-sm-4'>
+                      <input class='form-control' name="dns1" id='dns1' placeholder='DNS1' type='text'>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-sm-2 control-label' for='dns2'>DNS2：</label>
+                    <div class='col-sm-4'>
+                      <input class='form-control' name="dns2" id='dns2' placeholder='DNS2' type='text'>
+                    </div>
+                  </div>
+                  <div class='form-group'>
+                    <label class='col-md-2 control-label' for='method'>method：</label>
+                    <div class='col-md-10'>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="1"  type='checkbox'>OPTIONS
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="2"  type='checkbox'>HEAD
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="3"  type='checkbox'>GET
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="4"  type='checkbox'>POST
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="5"  type='checkbox'>PUT
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="6"  type='checkbox'>DELETE
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="7"  type='checkbox'>TRACE
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="8"  type='checkbox'>CONNECT
+                      </label>
+                      <label class="checkbox-inline">
+                        <input name="http_method[]" value="9"  type='checkbox'>PATCH
+                      </label>
+                    </div>
+                  </div>
+                  {/if}
+                  <div class='form-actions form-actions-padding-sm'>
+                    <div class='row'>
+                      <div class='col-md-10 col-md-offset-2'>
+                        <button class='btn btn-primary' type='button' onclick="checkDNS()">
+                          保存
+                        </button>
+                        <button class='btn' type='reset'>取消</button>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+        {include file='footer.phtml'}
+      </div>
+    </section>
+  </div>
+</body>
+{include file='after_body.phtml'}
+<script type="text/javascript">
+function checkDNS() {
+  var dns1 = document.getElementById('dns1').value;
+  var dns2 = document.getElementById('dns2').value;
+  if(check(dns1) && check(dns2)) {
+    document.getElementById('mainconfig').submit();
+  }else{
+    alert('输入的数据格式错误，请重新输入！');
+  }
+}
+
+function check(temp) {
+  var reSpaceCheck = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/;
+  if (reSpaceCheck.test(temp)){
+    temp.match(reSpaceCheck);
+    if (RegExp.$1<=255&&RegExp.$1>=0
+      &&RegExp.$2<=255&&RegExp.$2>=0
+      &&RegExp.$3<=255&&RegExp.$3>=0
+      &&RegExp.$4<=255&&RegExp.$4>=0){
+      return true;
+  }else{
+    return false;
+  }
+}else{
+  return false;
+}
+}
+</script>
+</html>
